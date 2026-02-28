@@ -51,28 +51,26 @@ This document is a **system-architect assessment** of Omni-Joiner: whether it is
 
 | Gap | Impact | Recommendation |
 |-----|--------|-----------------|
-| **Delay queue in-memory** | Pending delayed publishes are lost on process restart. Joins that completed but were waiting for `post_join_delay` will never be published unless reprocessed (and state was not yet deleted). | **Documented (P0.4):** See §3.2.1 below. Use short delay or accept best-effort; future durable store is P2.1. |
+| **Delay queue in-memory** | Pending delayed publishes are lost on process restart when delay queue is in-memory. | **Done (P2.1):** When `redis_addr` is set, the delay queue uses a Redis ZSET (`omni_joiner:delay:<config_name>`); pending items survive restart. Without Redis, queue remains in-memory (see §3.2.1). |
 | **Config not validated at startup** | Invalid join config (e.g. projection field referencing unknown stream) can cause runtime errors. | **Done (P0.3):** Validate join config on startup (stream_ids, projection stream refs, key fields, partial+TTL); fail fast with clear message. See `internal/config.ValidateJoinConfig` and tests in `config_test.go`. |
 | **Bloom false positives** | Bloom "maybe seen" can force a read when the key was never stored (e.g. after Scylla compaction or key eviction). Extra read is safe but adds load. | **Documented (P1.4):** ARCHITECTURE.md §6.3; size Bloom for key cardinality; optional metric (e.g. first-arrival counter) for tuning is P1.4 optional. |
 
-#### 3.2.1 Delay queue: in-memory limitation
+#### 3.2.1 Delay queue: in-memory and durable modes
 
-The **post-join delay queue** is **in-memory only**. When a join completes and `post_join_delay` is set, the joined result is scheduled in process memory and published after the delay. If the process restarts or is killed before the delay elapses:
+When **Redis is configured** (`redis_addr` set in processor config), the **post-join delay queue** is **durable**: pending items are stored in a Redis ZSET (`omni_joiner:delay:<join_config_name>`), with score = publish time. On restart, the processor reloads due items and publishes them. No configuration change is required beyond having Redis and `post_join_delay` set.
 
-- **Pending delayed items are lost** — they are not persisted to Scylla, Redis, or Kafka.
-- **State is already deleted** when the join completes and the item is enqueued, so reprocessing the same input will not re-run the join for that key; the joined record will not be re-emitted unless you replay from before the join completed (e.g. reset offsets), which may not be feasible.
+When **Redis is not configured**, the delay queue is **in-memory only** (previous behavior). If the process restarts before the delay elapses:
 
-**Recommendation:** For production use of `post_join_delay`:
+- **Pending delayed items are lost** — they are not persisted.
+- **State is already deleted** when the item is enqueued, so reprocessing will not re-emit those records.
 
-- Prefer **short delays** (e.g. a few seconds) so the window of loss on restart is small, or
-- **Accept best-effort** delivery for delayed publishes (e.g. if downstream can tolerate occasional gaps), or
-- Plan for a **durable delay store** later (see P2.1 in [PRODUCTION_READINESS_PLAN.md](PRODUCTION_READINESS_PLAN.md): Redis sorted set or a delay topic with re-enqueue by timestamp).
+**Recommendation:** For production use of `post_join_delay`, configure Redis so the delay queue is durable. If you run without Redis, use short delays or accept best-effort delivery.
 
 ### 3.3 Scaling and multi-tenancy
 
 | Gap | Impact | Recommendation |
 |-----|--------|-----------------|
-| **One join config per process** | Multiple join definitions require multiple processor instances or multiple config files and process groups. | Document as the current model; later, support multiple join configs per process (e.g. by `config_id` in message or topic routing). |
+| **One join config per process** | Multiple join definitions require multiple processor instances or multiple config files and process groups. | **Done (P2.2):** Optional multi-config mode: set `join_configs` or `config_paths` in processor config; messages must include `x-config-id` header (UUID of the join config). State uses `join_state_v2` (per config_id). |
 | **No guidance on partition count** | Throughput and parallelism depend on input topic partitions; over-partitioning can increase state spread. | **Documented (P1.2):** ARCHITECTURE.md §6 Operations and capacity — partition count, Scylla/Redis, Bloom tuning. |
 | **Shared Scylla/Redis** | All keys and timeouts share the same keyspace and Redis keys; no per-tenant or per-join isolation. | Acceptable for single-tenant or few joins; for multi-tenant, document that keyspace/Redis prefix could be made configurable per join. |
 
@@ -125,7 +123,7 @@ Use this as a quick checklist before treating the system as production-grade.
 - [ ] **Config and secrets** — Join and processor config validated at startup (P0.3). Do not commit production config; restrict access (e.g. `chmod 0600`); use env or secret manager for passwords. See [§3.4.1 Config and secrets](PRODUCTION_READINESS.md#341-config-and-secrets).
 - [x] **Observability** — Metrics scraped (e.g. Prometheus); dashboards for join rate, latency, and errors; alert on `handle_errors_total`, `commit_errors_total`, `egress_failures_total` (see [TESTING.md](TESTING.md)).
 - [x] **Health/readiness** — `GET /health` (liveness) and `GET /ready` (readiness) are implemented; use them in your orchestrator (see [TESTING.md](TESTING.md)).
-- [ ] **Delay queue** — If `post_join_delay` is used, see [§3.2.1 Delay queue limitation](PRODUCTION_READINESS.md#321-delay-queue-in-memory-limitation): pending delayed items are lost on restart; use short delay or accept best-effort, or plan for durable store (P2.1).
+- [ ] **Delay queue** — If `post_join_delay` is used with **Redis** configured, the queue is durable (Redis ZSET). Without Redis, see [§3.2.1](PRODUCTION_READINESS.md#321-delay-queue-in-memory-and-durable-modes): use short delay or accept best-effort.
 - [ ] **Capacity** — Partition count, Scylla/Redis sizing, and Bloom parameters tuned for key cardinality and throughput ([ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ---

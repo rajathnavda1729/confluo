@@ -181,7 +181,7 @@ Requires **Redis** (timeout ZSET + partial tracker) and a **corrections topic** 
 
 ### 4.3 Post-Join Delay
 
-**Config:** `post_join_delay` (e.g. `"2s"`). When the join **completes**, the result is not published immediately; it is scheduled in an internal **delay queue** and published after the delay. Use for "settle" semantics (e.g. allow late duplicates to arrive before publishing). The delay queue is **in-memory only**: pending delayed publishes are lost on process restart (see [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md#321-delay-queue-in-memory-limitation) and [TESTING.md](TESTING.md)).
+**Config:** `post_join_delay` (e.g. `"2s"`). When the join **completes**, the result is not published immediately; it is scheduled in an internal **delay queue** and published after the delay. Use for "settle" semantics (e.g. allow late duplicates to arrive before publishing). When **Redis is configured** (`redis_addr` set), the queue is **durable** (Redis ZSET at `omni_joiner:delay:<config_name>`); pending items survive process restart. Without Redis, the queue is in-memory only (see [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md#321-delay-queue-in-memory-and-durable-modes)).
 
 **Example:** `config/join_with_delay.json` — `post_join_delay: 2000000000` (2s in nanoseconds). Inner join semantics unchanged; only the publish step is delayed.
 
@@ -208,8 +208,13 @@ Requires **Redis** (timeout ZSET + partial tracker) and a **corrections topic** 
 | **2-way join** | Yes | `stream_ids: ["A", "B"]` |
 | **3-way (or N-way) join** | Yes | `stream_ids: ["orders", "shipments", "invoices"]` |
 | **Late-arrival corrections** | Yes | With partial egress + corrections topic + Redis partial tracker |
+| **Multiple join configs per process** | Yes | Set `join_configs` or `config_paths`; messages must include `x-config-id` header (UUID). State in `join_state_v2`. See §5.5. |
 | **Outer join** | No | Only inner and partial (timeout) semantics |
 | **Left/right join** | No | Not implemented |
+
+### 5.5 Multiple join configs (P2.2)
+
+When the processor config sets **`join_configs`** (or **`config_paths`** to load multiple join config files), the process runs in **multi-config mode**. Each consumed message must include the header **`x-config-id`** with the UUID of the join config (from the config’s `config_id` field). The processor routes the message to the handler for that config. State is stored in **`join_state_v2`** (primary key `(config_id, join_key_hash)`), so each config’s join state is isolated. Redis keys (Bloom, timeouts, delay queue, partial tracker) are prefixed per config. Producers must set `x-config-id` on every message so the processor can route correctly.
 
 ---
 

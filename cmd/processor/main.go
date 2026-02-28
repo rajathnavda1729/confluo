@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
@@ -54,12 +55,24 @@ func loadProcessorConfig(path string) (*config.ProcessorConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	// Single-config: config_path or inline join_config
 	if cfg.JoinConfig == nil && cfg.ConfigPath != "" {
 		jc, err := config.LoadJoinConfig(cfg.ConfigPath)
 		if err != nil {
 			return nil, err
 		}
 		cfg.JoinConfig = jc
+	}
+	// Multi-config: config_paths or inline join_configs
+	if len(cfg.JoinConfigs) == 0 && len(cfg.ConfigPaths) > 0 {
+		cfg.JoinConfigs = make([]*config.JoinConfig, 0, len(cfg.ConfigPaths))
+		for _, p := range cfg.ConfigPaths {
+			jc, err := config.LoadJoinConfig(p)
+			if err != nil {
+				return nil, fmt.Errorf("load %s: %w", p, err)
+			}
+			cfg.JoinConfigs = append(cfg.JoinConfigs, jc)
+		}
 	}
 	return &cfg, nil
 }
@@ -104,11 +117,22 @@ func retry(ctx context.Context, maxDur time.Duration, name string, log logger.Lo
 }
 
 func run(ctx context.Context, cfg *config.ProcessorConfig) error {
-	if cfg.JoinConfig == nil {
-		log.Fatal("join_config or config_path required")
-	}
-	if err := config.ValidateJoinConfig(cfg.JoinConfig); err != nil {
-		log.Fatalf("invalid join config: %v", err)
+	if cfg.MultiConfig() {
+		if len(cfg.JoinConfigs) == 0 {
+			log.Fatal("join_configs or config_paths required for multi-config")
+		}
+		for _, jc := range cfg.JoinConfigs {
+			if err := config.ValidateJoinConfig(jc); err != nil {
+				log.Fatalf("invalid join config %q: %v", jc.Name, err)
+			}
+		}
+	} else {
+		if cfg.JoinConfig == nil {
+			log.Fatal("join_config or config_path required")
+		}
+		if err := config.ValidateJoinConfig(cfg.JoinConfig); err != nil {
+			log.Fatalf("invalid join config: %v", err)
+		}
 	}
 
 	log := logger.NewFromEnv()
@@ -176,7 +200,7 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 	var timeoutSched consumer.TimeoutScheduler
 	var lateTracker consumer.LateArrivalTracker
 	correctionsTopic := cfg.CorrectionsTopic
-	if rdb != nil {
+	if !cfg.MultiConfig() && rdb != nil {
 		bloomFilter = bloom.New(rdb, cfg.RedisBloomKey)
 		if cfg.CorrectionsTopic != "" {
 			lateTracker = egress.NewRedisPartialTracker(rdb, "omni_joiner:partial")
@@ -196,13 +220,67 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 	}
 
 	var delayQueue consumer.DelayPublisher
-	if cfg.JoinConfig.PostJoinDelay.ToDuration() > 0 {
-		dq := delay.NewQueue(st, kclient, cfg.EgressTopic, cfg.JoinConfig.Name, log)
+	if !cfg.MultiConfig() && cfg.JoinConfig != nil && cfg.JoinConfig.PostJoinDelay.ToDuration() > 0 {
+		var redisKey string
+		if rdb != nil {
+			redisKey = "omni_joiner:delay:" + cfg.JoinConfig.Name
+		}
+		dq := delay.NewQueue(st, kclient, cfg.EgressTopic, cfg.JoinConfig.Name, log, rdb, redisKey)
 		delayQueue = dq
 		go dq.Run(ctx)
 	}
 
 	groupID := "omni-joiner-processor"
 	log.Info("processor starting", "input", cfg.InputTopic, "egress", cfg.EgressTopic, "group", groupID)
-	return consumer.Run(ctx, kclient.Client, cfg.JoinConfig, st, kclient, cfg.EgressTopic, bloomFilter, timeoutSched, delayQueue, lateTracker, correctionsTopic, log)
+	if cfg.MultiConfig() {
+		return runMultiConfig(ctx, cfg, kclient, st, rdb, log, correctionsTopic)
+	}
+	return runSingleConfig(ctx, cfg, kclient, st, rdb, log, bloomFilter, timeoutSched, delayQueue, lateTracker, correctionsTopic)
+}
+
+func runSingleConfig(ctx context.Context, cfg *config.ProcessorConfig, kclient *kafka.Client, st *store.Store, rdb *redis.Client, log logger.Logger, bloomFilter consumer.BloomChecker, timeoutSched consumer.TimeoutScheduler, delayQueue consumer.DelayPublisher, lateTracker consumer.LateArrivalTracker, correctionsTopic string) error {
+	return consumer.RunSingle(ctx, kclient.Client, cfg.JoinConfig, st, kclient, cfg.EgressTopic, bloomFilter, timeoutSched, delayQueue, lateTracker, correctionsTopic, log)
+}
+
+func runMultiConfig(ctx context.Context, cfg *config.ProcessorConfig, kclient *kafka.Client, st *store.Store, rdb *redis.Client, log logger.Logger, correctionsTopic string) error {
+	handlersByConfigID := make(map[uuid.UUID]*consumer.Handler)
+	for _, jc := range cfg.JoinConfigs {
+		stateStore := store.NewScopedStore(st, jc.ConfigID)
+		var bloomFilter consumer.BloomChecker
+		if rdb != nil {
+			bloomFilter = bloom.New(rdb, cfg.RedisBloomKey+":"+jc.ConfigID.String())
+		}
+		var timeoutSched consumer.TimeoutScheduler
+		var tracker consumer.LateArrivalTracker
+		if rdb != nil {
+			if cfg.CorrectionsTopic != "" {
+				tracker = egress.NewRedisPartialTracker(rdb, "omni_joiner:partial:"+jc.ConfigID.String())
+			}
+			tm := timeout.New(timeout.Config{
+				Store:          stateStore,
+				JoinConfig:     jc,
+				Producer:       kclient,
+				EgressTopic:    cfg.EgressTopic,
+				Redis:          rdb,
+				SetKey:         "omni_joiner:timeouts:" + jc.ConfigID.String(),
+				PartialTracker: tracker,
+				Log:            log,
+			})
+			timeoutSched = tm
+			go tm.Run(ctx)
+		}
+		var delayQueue consumer.DelayPublisher
+		if jc.PostJoinDelay.ToDuration() > 0 {
+			var redisKey string
+			if rdb != nil {
+				redisKey = "omni_joiner:delay:" + jc.Name
+			}
+			dq := delay.NewQueue(stateStore, kclient, cfg.EgressTopic, jc.Name, log, rdb, redisKey)
+			delayQueue = dq
+			go dq.Run(ctx)
+		}
+		handler := consumer.NewHandler(stateStore, jc, kclient, cfg.EgressTopic, bloomFilter, timeoutSched, delayQueue, tracker, correctionsTopic, log)
+		handlersByConfigID[jc.ConfigID] = handler
+	}
+	return consumer.Run(ctx, kclient.Client, consumer.HandlerResolverFromMap(handlersByConfigID), log)
 }

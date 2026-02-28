@@ -111,6 +111,22 @@ func EnsureKeyspaceAndTable(ctx context.Context, cfg Config) error {
 	if err := appSession.Query(createTable).WithContext(ctx).Exec(); err != nil {
 		return fmt.Errorf("create table: %w", err)
 	}
+	// V2 table for multi-config: state isolated by config_id.
+	createTableV2 := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s.join_state_v2 (
+		    config_id uuid,
+		    join_key_hash blob,
+		    join_key_raw text,
+		    participant_data map<text, blob>,
+		    arrival_timestamps map<text, timestamp>,
+		    is_completed boolean,
+		    PRIMARY KEY (config_id, join_key_hash)
+		) WITH default_time_to_live = 600
+		  AND compaction = {'class': 'LeveledCompactionStrategy'}
+	`, cfg.Keyspace)
+	if err := appSession.Query(createTableV2).WithContext(ctx).Exec(); err != nil {
+		return fmt.Errorf("create table join_state_v2: %w", err)
+	}
 	return nil
 }
 
@@ -220,4 +236,118 @@ func (s *Store) GetState(ctx context.Context, joinKeyHash []byte) (*JoinState, e
 func (s *Store) DeleteState(ctx context.Context, joinKeyHash []byte) error {
 	query := fmt.Sprintf(`DELETE FROM %s.join_state WHERE join_key_hash = ?`, s.cfg.Keyspace)
 	return s.session.Query(query, joinKeyHash).WithContext(ctx).Exec()
+}
+
+// GetStateV2 returns the current join state for the (configID, joinKeyHash) from join_state_v2.
+func (s *Store) GetStateV2(ctx context.Context, configID uuid.UUID, joinKeyHash []byte) (*JoinState, error) {
+	query := fmt.Sprintf(
+		`SELECT join_key_hash, join_key_raw, config_id, participant_data, arrival_timestamps, is_completed
+		 FROM %s.join_state_v2 WHERE config_id = ? AND join_key_hash = ?`,
+		s.cfg.Keyspace,
+	)
+	var (
+		hash      []byte
+		raw       string
+		gocqlUUID gocql.UUID
+		partData  map[string][]byte
+		arrivalTS map[string]time.Time
+		completed bool
+	)
+	q := s.session.Query(query, gocql.UUID(configID), joinKeyHash).WithContext(ctx)
+	if err := q.Scan(&hash, &raw, &gocqlUUID, &partData, &arrivalTS, &completed); err != nil {
+		if errors.Is(err, gocql.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get state v2: %w", err)
+	}
+	if partData == nil {
+		partData = make(map[string][]byte)
+	}
+	if arrivalTS == nil {
+		arrivalTS = make(map[string]time.Time)
+	}
+	return &JoinState{
+		JoinKeyHash:       hash,
+		JoinKeyRaw:        raw,
+		ConfigID:          configID,
+		ParticipantData:   partData,
+		ArrivalTimestamps: arrivalTS,
+		IsCompleted:       completed,
+	}, nil
+}
+
+// UpsertParticipantV2 is like UpsertParticipant but uses join_state_v2 (for multi-config).
+func (s *Store) UpsertParticipantV2(ctx context.Context, joinKeyHash []byte, joinKeyRaw string, configID uuid.UUID, streamID string, payload []byte) (*JoinState, error) {
+	now := time.Now()
+	gocqlUUID := gocql.UUID(configID)
+	query := fmt.Sprintf(
+		`UPDATE %s.join_state_v2 SET
+			join_key_raw = ?,
+			participant_data[?] = ?,
+			arrival_timestamps[?] = ?
+		WHERE config_id = ? AND join_key_hash = ?`,
+		s.cfg.Keyspace,
+	)
+	q := s.session.Query(query, joinKeyRaw, streamID, payload, streamID, now, gocqlUUID, joinKeyHash).WithContext(ctx)
+	if err := q.Exec(); err != nil {
+		return nil, fmt.Errorf("upsert participant v2: %w", err)
+	}
+	return s.GetStateV2(ctx, configID, joinKeyHash)
+}
+
+// UpsertParticipantOnlyV2 is like UpsertParticipantOnly but uses join_state_v2.
+func (s *Store) UpsertParticipantOnlyV2(ctx context.Context, joinKeyHash []byte, joinKeyRaw string, configID uuid.UUID, streamID string, payload []byte) error {
+	now := time.Now()
+	gocqlUUID := gocql.UUID(configID)
+	query := fmt.Sprintf(
+		`UPDATE %s.join_state_v2 SET
+			join_key_raw = ?,
+			participant_data[?] = ?,
+			arrival_timestamps[?] = ?
+		WHERE config_id = ? AND join_key_hash = ?`,
+		s.cfg.Keyspace,
+	)
+	return s.session.Query(query, joinKeyRaw, streamID, payload, streamID, now, gocqlUUID, joinKeyHash).WithContext(ctx).Exec()
+}
+
+// DeleteStateV2 removes the join state row from join_state_v2.
+func (s *Store) DeleteStateV2(ctx context.Context, configID uuid.UUID, joinKeyHash []byte) error {
+	query := fmt.Sprintf(`DELETE FROM %s.join_state_v2 WHERE config_id = ? AND join_key_hash = ?`, s.cfg.Keyspace)
+	return s.session.Query(query, gocql.UUID(configID), joinKeyHash).WithContext(ctx).Exec()
+}
+
+// StateStore is the interface used by the consumer handler for join state. *Store implements it (single-config);
+// *ScopedStore implements it for one config when using join_state_v2 (multi-config).
+type StateStore interface {
+	GetState(ctx context.Context, joinKeyHash []byte) (*JoinState, error)
+	UpsertParticipant(ctx context.Context, joinKeyHash []byte, joinKeyRaw string, configID uuid.UUID, streamID string, payload []byte) (*JoinState, error)
+	UpsertParticipantOnly(ctx context.Context, joinKeyHash []byte, joinKeyRaw string, configID uuid.UUID, streamID string, payload []byte) error
+	DeleteState(ctx context.Context, joinKeyHash []byte) error
+}
+
+// ScopedStore binds a configID and delegates to join_state_v2. Use for multi-config mode.
+type ScopedStore struct {
+	store    *Store
+	configID uuid.UUID
+}
+
+// NewScopedStore returns a StateStore that uses join_state_v2 for the given config.
+func NewScopedStore(store *Store, configID uuid.UUID) *ScopedStore {
+	return &ScopedStore{store: store, configID: configID}
+}
+
+func (s *ScopedStore) GetState(ctx context.Context, joinKeyHash []byte) (*JoinState, error) {
+	return s.store.GetStateV2(ctx, s.configID, joinKeyHash)
+}
+
+func (s *ScopedStore) UpsertParticipant(ctx context.Context, joinKeyHash []byte, joinKeyRaw string, configID uuid.UUID, streamID string, payload []byte) (*JoinState, error) {
+	return s.store.UpsertParticipantV2(ctx, joinKeyHash, joinKeyRaw, s.configID, streamID, payload)
+}
+
+func (s *ScopedStore) UpsertParticipantOnly(ctx context.Context, joinKeyHash []byte, joinKeyRaw string, configID uuid.UUID, streamID string, payload []byte) error {
+	return s.store.UpsertParticipantOnlyV2(ctx, joinKeyHash, joinKeyRaw, s.configID, streamID, payload)
+}
+
+func (s *ScopedStore) DeleteState(ctx context.Context, joinKeyHash []byte) error {
+	return s.store.DeleteStateV2(ctx, s.configID, joinKeyHash)
 }

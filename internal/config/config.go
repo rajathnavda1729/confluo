@@ -72,16 +72,23 @@ type JoinConfig struct {
 
 // ProcessorConfig is the top-level config for the processor (brokers, store, etc.).
 type ProcessorConfig struct {
-	KafkaBrokers     []string    `json:"kafka_brokers"`
-	InputTopic       string      `json:"input_topic"`
-	EgressTopic      string      `json:"egress_topic"`
-	ConfigPath       string      `json:"config_path"`           // Path to join config file or dir
-	JoinConfig       *JoinConfig `json:"join_config,omitempty"` // Or inline
-	ScyllaHosts      []string    `json:"scylla_hosts"`
-	ScyllaKeyspace   string      `json:"scylla_keyspace"`
-	RedisAddr        string      `json:"redis_addr"`
-	RedisBloomKey    string      `json:"redis_bloom_key"`   // Key for the Bloom filter
-	CorrectionsTopic string      `json:"corrections_topic"` // Optional; for late-arrival correction events
+	KafkaBrokers     []string      `json:"kafka_brokers"`
+	InputTopic       string        `json:"input_topic"`
+	EgressTopic      string        `json:"egress_topic"`
+	ConfigPath       string        `json:"config_path"`             // Path to single join config file (single-config mode)
+	JoinConfig       *JoinConfig   `json:"join_config,omitempty"`  // Or inline (single-config mode)
+	ConfigPaths      []string      `json:"config_paths,omitempty"` // Paths to multiple join configs (multi-config mode)
+	JoinConfigs      []*JoinConfig `json:"join_configs,omitempty"` // Or inline list (multi-config mode)
+	ScyllaHosts      []string      `json:"scylla_hosts"`
+	ScyllaKeyspace   string        `json:"scylla_keyspace"`
+	RedisAddr        string        `json:"redis_addr"`
+	RedisBloomKey    string        `json:"redis_bloom_key"`   // Key for the Bloom filter
+	CorrectionsTopic string        `json:"corrections_topic"` // Optional; for late-arrival correction events
+}
+
+// MultiConfig returns true when the processor is configured for multiple join configs (routing by x-config-id header).
+func (c *ProcessorConfig) MultiConfig() bool {
+	return len(c.JoinConfigs) > 0
 }
 
 // LoadJoinConfig loads a JoinConfig from a JSON file.

@@ -177,7 +177,7 @@ docker compose exec -T redpanda rpk topic consume join-output --brokers localhos
 
 **Override join config without changing processor JSON:** Edit `config_path` in the processor config to point at any of the join configs above (e.g. `config/join_three_way.json`).
 
-**Post-join delay and production:** The delay queue (used when `post_join_delay` is set) is **in-memory only**. Pending delayed publishes are lost on process restart; join state is already deleted when the result is enqueued, so reprocessing will not re-emit those records. For production, use a short delay, accept best-effort delivery, or plan for a durable delay store. See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md#321-delay-queue-in-memory-limitation) for details.
+**Post-join delay and production:** When **Redis is configured** (`redis_addr` set), the delay queue is **durable** (Redis ZSET); pending delayed publishes survive restart. Without Redis, the queue is in-memory only and pending items are lost on restart. See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md#321-delay-queue-in-memory-and-durable-modes).
 
 **Example: test partial egress**
 

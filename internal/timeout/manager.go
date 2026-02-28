@@ -23,7 +23,7 @@ const (
 
 // Manager schedules join-key timeouts and processes partial egress when state expires incomplete.
 type Manager struct {
-	store          *store.Store
+	store          store.StateStore
 	joinCfg        *config.JoinConfig
 	producer       consumer.Producer
 	egressTopic    string
@@ -37,7 +37,7 @@ type Manager struct {
 
 // Config for the timeout manager.
 type Config struct {
-	Store          *store.Store
+	Store          store.StateStore
 	JoinConfig     *config.JoinConfig
 	Producer       consumer.Producer
 	EgressTopic    string

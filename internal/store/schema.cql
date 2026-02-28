@@ -14,3 +14,15 @@ CREATE TABLE IF NOT EXISTS omni_joiner.join_state (
     PRIMARY KEY (join_key_hash)
 ) WITH default_time_to_live = 600
   AND compaction = {'class': 'LeveledCompactionStrategy'};
+
+-- Multi-config: state isolated by config_id (used when join_configs / config_paths is set).
+CREATE TABLE IF NOT EXISTS omni_joiner.join_state_v2 (
+    config_id uuid,
+    join_key_hash blob,
+    join_key_raw text,
+    participant_data map<text, blob>,
+    arrival_timestamps map<text, timestamp>,
+    is_completed boolean,
+    PRIMARY KEY (config_id, join_key_hash)
+) WITH default_time_to_live = 600
+  AND compaction = {'class': 'LeveledCompactionStrategy'};

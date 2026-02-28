@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/confluo/omni-joiner/internal/config"
@@ -23,6 +24,7 @@ import (
 )
 
 const streamIDHeader = "x-stream-id"
+const configIDHeader = "x-config-id"
 
 // Producer sends messages to Kafka. Implemented by internal/kafka.Client.
 // Defined here so delay and timeout packages can use it without depending on kafka.
@@ -40,7 +42,7 @@ type Record struct {
 
 // Handler processes consumed messages.
 type Handler struct {
-	store            *store.Store
+	store            store.StateStore
 	joinCfg          *config.JoinConfig
 	engine           *engine.Engine
 	producer         Producer
@@ -77,13 +79,13 @@ type TimeoutScheduler interface {
 }
 
 // NewHandler builds a handler that uses the store, join config, and optional producer for egress.
-// If log is nil, logger.Global is used.
-func NewHandler(store *store.Store, joinCfg *config.JoinConfig, producer Producer, egressTopic string, bloom BloomChecker, timeoutSched TimeoutScheduler, delayQueue DelayPublisher, lateTracker LateArrivalTracker, correctionsTopic string, log logger.Logger) *Handler {
+// If log is nil, logger.Global is used. stateStore can be *store.Store (single-config) or *store.ScopedStore (multi-config).
+func NewHandler(stateStore store.StateStore, joinCfg *config.JoinConfig, producer Producer, egressTopic string, bloom BloomChecker, timeoutSched TimeoutScheduler, delayQueue DelayPublisher, lateTracker LateArrivalTracker, correctionsTopic string, log logger.Logger) *Handler {
 	if log == nil {
 		log = logger.Global
 	}
 	return &Handler{
-		store:            store,
+		store:            stateStore,
 		joinCfg:          joinCfg,
 		engine:           engine.New(joinCfg),
 		producer:         producer,
@@ -247,14 +249,12 @@ func (h *Handler) publishTo(ctx context.Context, topic string, value []byte, key
 	return h.producer.ProduceSync(ctx, topic, key, value)
 }
 
-// Run consumes from the topic using the kgo client, processes each record with the handler, and commits.
-// The client must have been created with ConsumerGroup and ConsumeTopics for the given topic.
-// If log is nil, logger.Global is used.
-func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, store *store.Store, producer Producer, egressTopic string, bloom BloomChecker, timeoutSched TimeoutScheduler, delayQueue DelayPublisher, lateTracker LateArrivalTracker, correctionsTopic string, log logger.Logger) error {
+// Run consumes from the topic using the kgo client. For each record, getHandler returns the handler to use
+// (e.g. by x-config-id header in multi-config mode). If log is nil, logger.Global is used.
+func Run(ctx context.Context, client *kgo.Client, getHandler func(*Record) (*Handler, error), log logger.Logger) error {
 	if log == nil {
 		log = logger.Global
 	}
-	handler := NewHandler(store, joinCfg, producer, egressTopic, bloom, timeoutSched, delayQueue, lateTracker, correctionsTopic, log)
 	for {
 		select {
 		case <-ctx.Done():
@@ -276,12 +276,18 @@ func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, st
 		fetches.EachPartition(func(p kgo.FetchTopicPartition) {
 			for _, rec := range p.Records {
 				r := recordFromKgo(rec)
+				handler, err := getHandler(r)
+				if err != nil {
+					log.Warn("skip record: no handler", "topic", rec.Topic, "partition", rec.Partition, "offset", rec.Offset, "error", err)
+					commitErr = commitWithRetry(ctx, client, rec, "unknown", log, 3, 2*time.Second)
+					return
+				}
 				if err := handler.Handle(ctx, r); err != nil {
-					metrics.HandleErrorsTotal.WithLabelValues(joinCfg.Name).Inc()
+					metrics.HandleErrorsTotal.WithLabelValues(handler.joinCfg.Name).Inc()
 					log.Error("handle error", "topic", rec.Topic, "partition", rec.Partition, "offset", rec.Offset, "key", string(rec.Key), "error", err)
 					continue
 				}
-				commitErr = commitWithRetry(ctx, client, rec, joinCfg.Name, log, 3, 2*time.Second)
+				commitErr = commitWithRetry(ctx, client, rec, handler.joinCfg.Name, log, 3, 2*time.Second)
 				if commitErr != nil {
 					return
 				}
@@ -292,6 +298,41 @@ func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, st
 		}
 		client.AllowRebalance()
 	}
+}
+
+// RunSingle runs the consumer with a single join config (original behavior). Use when not using multi-config.
+func RunSingle(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, stateStore store.StateStore, producer Producer, egressTopic string, bloom BloomChecker, timeoutSched TimeoutScheduler, delayQueue DelayPublisher, lateTracker LateArrivalTracker, correctionsTopic string, log logger.Logger) error {
+	handler := NewHandler(stateStore, joinCfg, producer, egressTopic, bloom, timeoutSched, delayQueue, lateTracker, correctionsTopic, log)
+	return Run(ctx, client, HandlerResolverFromSingle(handler), log)
+}
+
+// HandlerResolverFromSingle returns a getHandler function that always returns the given handler (single-config mode).
+func HandlerResolverFromSingle(h *Handler) func(*Record) (*Handler, error) {
+	return func(*Record) (*Handler, error) { return h, nil }
+}
+
+// HandlerResolverFromMap returns a getHandler function that looks up the handler by x-config-id header (multi-config mode).
+func HandlerResolverFromMap(handlersByConfigID map[uuid.UUID]*Handler) func(*Record) (*Handler, error) {
+	return func(rec *Record) (*Handler, error) {
+		configID, err := getConfigID(rec)
+		if err != nil {
+			return nil, err
+		}
+		h := handlersByConfigID[configID]
+		if h == nil {
+			return nil, fmt.Errorf("unknown config_id %s", configID)
+		}
+		return h, nil
+	}
+}
+
+func getConfigID(rec *Record) (uuid.UUID, error) {
+	for _, h := range rec.Headers {
+		if h.Key == configIDHeader {
+			return uuid.Parse(h.Value)
+		}
+	}
+	return uuid.Nil, fmt.Errorf("missing header %q", configIDHeader)
 }
 
 // commitWithRetry calls CommitRecords up to maxAttempts times with backoff. Returns the last error if all attempts fail.

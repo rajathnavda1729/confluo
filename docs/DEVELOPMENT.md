@@ -76,8 +76,8 @@ Driven by [docs/PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) and [docs/PROD
 | P1.2 | Capacity and partition guidance (ops doc)                            | Done    | §3.3; ARCHITECTURE.md §6 Operations and capacity |
 | P1.3 | Commit failure retry (bounded) before exit                           | Done    | §3.5; commitWithRetry in consumer, 3 attempts + backoff |
 | P1.4 | Bloom false-positive operational note (and optional metric)         | Done    | §3.2; ARCHITECTURE.md §6.3 |
-| P2.1 | Durable delay queue (Redis or topic)                                 | Pending  | §3.2  |
-| P2.2 | Multiple join configs per process                                    | Pending  | §3.3  |
+| P2.1 | Durable delay queue (Redis or topic)                                 | Done    | §3.2; Redis ZSET when redis_addr set; key omni_joiner:delay:<config_name> |
+| P2.2 | Multiple join configs per process                                    | Done    | §3.3; join_configs/config_paths, x-config-id header, join_state_v2, ScopedStore |
 | P2.3 | Optional auth for /metrics                                           | Pending  | §3.4  |
 | P2.4 | Timeout manager backpressure / rate limiting                         | Pending  | §3.5  |
 
