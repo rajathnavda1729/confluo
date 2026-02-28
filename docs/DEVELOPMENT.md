@@ -61,6 +61,27 @@ Use this checklist as the source of truth. Update it as steps are completed.
 | 3.2  | Late arrival / correction events and docs                                | Done   |       |
 
 
+### Phase 4: Production Readiness (from system-architect review)
+
+Driven by [docs/PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) and [docs/PRODUCTION_READINESS_PLAN.md](PRODUCTION_READINESS_PLAN.md). Complete **P0** before production; **P1** soon after; **P2** as needed.
+
+| Step | Item                                                                 | Status   | Notes |
+| ---- | -------------------------------------------------------------------- | -------- | ----- |
+| P0.1 | Health and readiness HTTP endpoints (`/health`, `/ready`)            | Pending  | §3.1  |
+| P0.2 | Failure metrics (handle, commit, egress errors)                       | Pending  | §3.1  |
+| P0.3 | Join config validation at startup                                    | Pending  | §3.2  |
+| P0.4 | Document delay queue in-memory limitation                            | Pending  | §3.2  |
+| P0.5 | Document config and secrets (file permissions, env/secrets)          | Pending  | §3.4  |
+| P1.1 | Structured logging (levels, optional JSON)                           | Pending  | §3.1  |
+| P1.2 | Capacity and partition guidance (ops doc)                            | Pending  | §3.3  |
+| P1.3 | Commit failure retry (bounded) before exit                           | Pending  | §3.5  |
+| P1.4 | Bloom false-positive operational note (and optional metric)         | Pending  | §3.2  |
+| P2.1 | Durable delay queue (Redis or topic)                                 | Pending  | §3.2  |
+| P2.2 | Multiple join configs per process                                    | Pending  | §3.3  |
+| P2.3 | Optional auth for /metrics                                           | Pending  | §3.4  |
+| P2.4 | Timeout manager backpressure / rate limiting                         | Pending  | §3.5  |
+
+
 ### Testing and Evaluation (ongoing)
 
 
@@ -161,5 +182,7 @@ Enabled linters align with the Go standards: **goimports** (import order), **err
 | Late arrival / corrections        | [docs/LATE_ARRIVAL.md](LATE_ARRIVAL.md)                                                                                       |
 | Cursor rules (phase, tests, docs) | [.cursor/rules/](../.cursor/rules/)                                                                                           |
 | Linting (golangci-lint)          | [.golangci.yml](../.golangci.yml); run `make lint` — see §5.5 above.                                                         |
+| Production readiness review      | [docs/PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — verdict, gaps, checklist.                                          |
+| Production readiness plan        | [docs/PRODUCTION_READINESS_PLAN.md](PRODUCTION_READINESS_PLAN.md) — P0/P1/P2 implementation plan from the review.            |
 
 

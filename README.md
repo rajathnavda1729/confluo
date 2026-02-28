@@ -74,6 +74,10 @@ See [Omni-Joiner_ Stream Joining Platform Design.md](Omni-Joiner_%20Stream%20Joi
 
 **Architecture (components, flow, join types):** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — role of Redpanda, ScyllaDB, Redis; flow and sequence diagrams (Mermaid); inner, partial, delay, composite-key joins with examples.
 
+**Production readiness (system-architect review):** [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) — verdict, strengths, gaps, and checklist for production use.
+
+**Implementation plan (from review):** [docs/PRODUCTION_READINESS_PLAN.md](docs/PRODUCTION_READINESS_PLAN.md) — P0/P1/P2 work items; Phase 4 checklist in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
 **Development process:** [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — phase-wise execution, checklist, test requirements, coding standards.  
 **Design decisions:** [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) — key choices and rationale.
 

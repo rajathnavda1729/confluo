@@ -218,4 +218,6 @@ Requires **Redis** (timeout ZSET + partial tracker) and a **corrections topic** 
 - **Running and testing:** [TESTING.md](TESTING.md) — topics, produce script, configs.
 - **Ordering and partitioning:** [ORDERING.md](ORDERING.md) — Kafka key = join key.
 - **Late arrival and corrections:** [LATE_ARRIVAL.md](LATE_ARRIVAL.md) — schema and downstream upserts.
+- **Production readiness:** [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — system-architect review: strengths, gaps, and production checklist.
+- **Implementation plan:** [PRODUCTION_READINESS_PLAN.md](PRODUCTION_READINESS_PLAN.md) — planned changes (P0/P1/P2) from the review; track in [DEVELOPMENT.md](DEVELOPMENT.md) Phase 4.
 - **Design and roadmap:** [Omni-Joiner_ Stream Joining Platform Design.md](../Omni-Joiner_%20Stream%20Joining%20Platform%20Design.md).
