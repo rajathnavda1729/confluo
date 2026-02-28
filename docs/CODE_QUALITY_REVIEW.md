@@ -56,6 +56,7 @@ These remain ignored by design; comments added so they are explicit:
 
 ## 3. Possible Future Optimizations
 
+- **Linting:** We now use **golangci-lint** (see [DEVELOPMENT.md](DEVELOPMENT.md) §5.5 and `.golangci.yml`). Previously we did not use a linting tool; the project relied on Cursor rules and tests. Linting is in place to enforce code structure and error-handling rules automatically.
 - **Structured logging:** Introduce a small logger interface (e.g. `Logger` with `Warn/Error`) and use it in consumer, delay, timeout instead of `log.Printf`, to allow JSON logs and levels in production.
 - **Metrics for failures:** Add Prometheus counters for handle errors, commit errors, produce failures in delay/timeout, so SLOs and alerting can be built.
 - **Retry policy for produce:** In delay queue and timeout manager, consider a bounded retry (e.g. 3x with backoff) before giving up and leaving state for next cycle.

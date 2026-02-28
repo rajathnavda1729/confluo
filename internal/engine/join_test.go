@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/confluo/omni-joiner/internal/config"
 	"github.com/confluo/omni-joiner/internal/store"
-	"github.com/google/uuid"
 )
 
 func TestEngine_IsComplete(t *testing.T) {

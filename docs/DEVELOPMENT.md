@@ -125,6 +125,28 @@ Use this checklist as the source of truth. Update it as steps are completed.
 - **Go:** Follow [.cursor/rules/go-standards.mdc](../.cursor/rules/go-standards.mdc): formatting, error wrapping, interfaces, context, cleanup.
 - **Naming:** Match existing project style (e.g. `JoinConfig`, `UpsertParticipant`, `EgressTopic`).
 
+### 5.5 Linting
+
+We use **[golangci-lint](https://golangci-lint.run/)** to enforce structure and catch common issues. Config: [.golangci.yml](../.golangci.yml) at repo root.
+
+**Why it wasn’t used earlier:** The project relied on Cursor rules, manual review, and tests first; no CI or automated lint gate was in place. Linting is now added so style and error-handling rules are enforced automatically.
+
+**How to run:**
+
+```bash
+make lint
+```
+
+No install needed: the Makefile runs the linter via `go run`, so the first run may download golangci-lint. For faster repeated runs you can run `make lint-install` and ensure `$(go env GOPATH)/bin` is on your `PATH`.
+
+To auto-fix import order and formatting (goimports) then run the linter:
+
+```bash
+make lint-fix
+```
+
+Enabled linters align with the Go standards: **goimports** (import order), **errcheck** (no unchecked errors; use `//nolint:errcheck` with a short comment for intentional ignores), **errorlint** (prefer `%w`), **contextcheck** (context usage), **staticcheck** / **gosimple** / **unused**. Fix any new issues before merging, or add a justified `//nolint` where the rule doesn’t apply.
+
 ---
 
 ## 6. Where Things Live
@@ -138,5 +160,6 @@ Use this checklist as the source of truth. Update it as steps are completed.
 | Ordering / partitioning           | [docs/ORDERING.md](ORDERING.md)                                                                                               |
 | Late arrival / corrections        | [docs/LATE_ARRIVAL.md](LATE_ARRIVAL.md)                                                                                       |
 | Cursor rules (phase, tests, docs) | [.cursor/rules/](../.cursor/rules/)                                                                                           |
+| Linting (golangci-lint)          | [.golangci.yml](../.golangci.yml); run `make lint` — see §5.5 above.                                                         |
 
 

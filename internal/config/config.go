@@ -60,28 +60,28 @@ type ProjectionField struct {
 
 // JoinConfig defines one N-way join: streams, key, TTL, projection, egress.
 type JoinConfig struct {
-	ConfigID    uuid.UUID        `json:"config_id"`
-	Name        string           `json:"name"`
-	StreamIDs   []string         `json:"stream_ids"`   // N streams, e.g. ["StreamA", "StreamB"]
-	Key         KeyDef           `json:"key"`
-	TTL         Duration         `json:"ttl"`          // Per join-group TTL (nanoseconds or string e.g. "10m")
-	Projection  []ProjectionField `json:"projection"`  // Output schema
-	Egress      EgressPolicy     `json:"egress"`      // inner | partial
-	PostJoinDelay Duration       `json:"post_join_delay,omitempty"` // Optional settle time before publish
+	ConfigID      uuid.UUID         `json:"config_id"`
+	Name          string            `json:"name"`
+	StreamIDs     []string          `json:"stream_ids"` // N streams, e.g. ["StreamA", "StreamB"]
+	Key           KeyDef            `json:"key"`
+	TTL           Duration          `json:"ttl"`                       // Per join-group TTL (nanoseconds or string e.g. "10m")
+	Projection    []ProjectionField `json:"projection"`                // Output schema
+	Egress        EgressPolicy      `json:"egress"`                    // inner | partial
+	PostJoinDelay Duration          `json:"post_join_delay,omitempty"` // Optional settle time before publish
 }
 
 // ProcessorConfig is the top-level config for the processor (brokers, store, etc.).
 type ProcessorConfig struct {
-	KafkaBrokers   []string       `json:"kafka_brokers"`
-	InputTopic     string         `json:"input_topic"`
-	EgressTopic    string         `json:"egress_topic"`
-	ConfigPath     string         `json:"config_path"`     // Path to join config file or dir
-	JoinConfig     *JoinConfig    `json:"join_config,omitempty"` // Or inline
-	ScyllaHosts    []string       `json:"scylla_hosts"`
-	ScyllaKeyspace string         `json:"scylla_keyspace"`
-	RedisAddr      string         `json:"redis_addr"`
-	RedisBloomKey  string         `json:"redis_bloom_key"` // Key for the Bloom filter
-	CorrectionsTopic string       `json:"corrections_topic"` // Optional; for late-arrival correction events
+	KafkaBrokers     []string    `json:"kafka_brokers"`
+	InputTopic       string      `json:"input_topic"`
+	EgressTopic      string      `json:"egress_topic"`
+	ConfigPath       string      `json:"config_path"`           // Path to join config file or dir
+	JoinConfig       *JoinConfig `json:"join_config,omitempty"` // Or inline
+	ScyllaHosts      []string    `json:"scylla_hosts"`
+	ScyllaKeyspace   string      `json:"scylla_keyspace"`
+	RedisAddr        string      `json:"redis_addr"`
+	RedisBloomKey    string      `json:"redis_bloom_key"`   // Key for the Bloom filter
+	CorrectionsTopic string      `json:"corrections_topic"` // Optional; for late-arrival correction events
 }
 
 // LoadJoinConfig loads a JoinConfig from a JSON file.

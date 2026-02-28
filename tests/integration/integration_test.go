@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/confluo/omni-joiner/internal/keys"
 	"github.com/confluo/omni-joiner/internal/store"
-	"github.com/google/uuid"
 )
 
 // TestStore_JoinFlow_Integration requires ScyllaDB at 127.0.0.1. Skip with -short.

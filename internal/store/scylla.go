@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,12 +17,12 @@ const (
 
 // JoinState represents the current state of a join group (after read).
 type JoinState struct {
-	JoinKeyHash        []byte
-	JoinKeyRaw         string
-	ConfigID           uuid.UUID
-	ParticipantData    map[string][]byte
-	ArrivalTimestamps  map[string]time.Time
-	IsCompleted        bool
+	JoinKeyHash       []byte
+	JoinKeyRaw        string
+	ConfigID          uuid.UUID
+	ParticipantData   map[string][]byte
+	ArrivalTimestamps map[string]time.Time
+	IsCompleted       bool
 }
 
 // Config configures the ScyllaDB store.
@@ -172,21 +173,22 @@ func (s *Store) GetState(ctx context.Context, joinKeyHash []byte) (*JoinState, e
 		s.cfg.Keyspace,
 	)
 	var (
-		hash       []byte
-		raw        string
-		gocqlUUID  gocql.UUID
-		partData   map[string][]byte
-		arrivalTS  map[string]time.Time
-		completed  bool
+		hash      []byte
+		raw       string
+		gocqlUUID gocql.UUID
+		partData  map[string][]byte
+		arrivalTS map[string]time.Time
+		completed bool
 	)
 	q := s.session.Query(query, joinKeyHash).WithContext(ctx)
 	if err := q.Scan(&hash, &raw, &gocqlUUID, &partData, &arrivalTS, &completed); err != nil {
-		if err == gocql.ErrNotFound {
+		if errors.Is(err, gocql.ErrNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get state: %w", err)
 	}
 	// gocql.UUID is 16 bytes; uuid.FromBytes can fail only on wrong length; use zero UUID on error
+	//nolint:errcheck // length is fixed; zero UUID used on impossible error
 	configID, _ := uuid.FromBytes(gocqlUUID[:])
 	if partData == nil {
 		partData = make(map[string][]byte)

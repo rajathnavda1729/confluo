@@ -7,11 +7,12 @@ import (
 	"log"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/confluo/omni-joiner/internal/config"
 	"github.com/confluo/omni-joiner/internal/consumer"
 	"github.com/confluo/omni-joiner/internal/projection"
 	"github.com/confluo/omni-joiner/internal/store"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -21,15 +22,15 @@ const (
 
 // Manager schedules join-key timeouts and processes partial egress when state expires incomplete.
 type Manager struct {
-	store            *store.Store
-	joinCfg          *config.JoinConfig
-	producer         consumer.Producer
-	egressTopic      string
-	redis            redis.UniversalClient
-	setKey           string
-	pollInterval     time.Duration
-	batchSize        int
-	partialTracker   PartialTracker
+	store          *store.Store
+	joinCfg        *config.JoinConfig
+	producer       consumer.Producer
+	egressTopic    string
+	redis          redis.UniversalClient
+	setKey         string
+	pollInterval   time.Duration
+	batchSize      int
+	partialTracker PartialTracker
 }
 
 // Config for the timeout manager.
@@ -137,9 +138,11 @@ func (m *Manager) processDue(ctx context.Context) error {
 				}
 			}
 			if m.partialTracker != nil {
+				//nolint:errcheck // best-effort; partial egress already published
 				_ = m.partialTracker.Add(ctx, keyHash)
 			}
 		}
+		//nolint:errcheck // best-effort; state is removed from timeout set below
 		_ = m.store.DeleteState(ctx, keyHash)
 		m.redis.ZRem(ctx, m.setKey, member)
 	}

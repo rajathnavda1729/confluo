@@ -11,6 +11,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"github.com/confluo/omni-joiner/internal/config"
 	"github.com/confluo/omni-joiner/internal/egress"
 	"github.com/confluo/omni-joiner/internal/engine"
@@ -18,7 +20,6 @@ import (
 	"github.com/confluo/omni-joiner/internal/metrics"
 	"github.com/confluo/omni-joiner/internal/projection"
 	"github.com/confluo/omni-joiner/internal/store"
-	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 const streamIDHeader = "x-stream-id"
@@ -39,16 +40,16 @@ type Record struct {
 
 // Handler processes consumed messages.
 type Handler struct {
-	store             *store.Store
-	joinCfg           *config.JoinConfig
-	engine            *engine.Engine
-	producer          Producer
-	egressTopic       string
-	bloom             BloomChecker
-	timeoutSched      TimeoutScheduler
-	delayQueue        DelayPublisher
-	lateTracker       LateArrivalTracker
-	correctionsTopic  string
+	store            *store.Store
+	joinCfg          *config.JoinConfig
+	engine           *engine.Engine
+	producer         Producer
+	egressTopic      string
+	bloom            BloomChecker
+	timeoutSched     TimeoutScheduler
+	delayQueue       DelayPublisher
+	lateTracker      LateArrivalTracker
+	correctionsTopic string
 }
 
 // LateArrivalTracker indicates whether a key had partial egress (so we can send correction on late arrival).
@@ -124,6 +125,7 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 				ttl := h.joinCfg.TTL.ToDuration()
 				if ttl > 0 {
 					// Best-effort: timeout schedule failure does not block first-arrival path
+					//nolint:errcheck // intentional best-effort
 					_ = h.timeoutSched.ScheduleTimeout(ctx, joinKeyHash, time.Now().Add(ttl))
 				}
 			}
@@ -138,6 +140,7 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 
 	if state != nil && len(state.ParticipantData) < h.joinCfg.N() && h.lateTracker != nil && h.correctionsTopic != "" {
 		// Best-effort: late-arrival correction path; ignore Contains error to avoid blocking
+		//nolint:errcheck // intentional: best-effort path
 		ok, _ := h.lateTracker.Contains(ctx, joinKeyHash)
 		if ok {
 			partial, err := projection.Apply(state.ParticipantData, h.joinCfg.Projection)
@@ -157,8 +160,10 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 			if err := h.publishTo(ctx, h.correctionsTopic, corrBytes, joinKeyHash); err != nil {
 				log.Printf("[%s] late-arrival correction publish failed: %v", h.joinCfg.Name, err)
 			}
-			_ = h.lateTracker.Remove(ctx, joinKeyHash)   // best-effort cleanup
-			_ = h.store.DeleteState(ctx, joinKeyHash)   // best-effort; state may be stale on retry
+			//nolint:errcheck // best-effort cleanup; state may be stale on retry
+			_ = h.lateTracker.Remove(ctx, joinKeyHash) // best-effort cleanup
+			//nolint:errcheck // best-effort; state may be stale on retry
+			_ = h.store.DeleteState(ctx, joinKeyHash) // best-effort; state may be stale on retry
 			return nil
 		}
 	}
@@ -215,7 +220,7 @@ func (h *Handler) extractKey(payload []byte) (hash []byte, raw string, err error
 		return nil, "", err
 	}
 	if h.joinCfg.Key.Field != "" {
-		v, _ := m[h.joinCfg.Key.Field].(string)
+		v, _ := m[h.joinCfg.Key.Field].(string) //nolint:errcheck // type assertion: empty string used when not present
 		hash, raw = keys.CompositeKey(v, nil)
 		return hash, raw, nil
 	}

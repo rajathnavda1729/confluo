@@ -37,7 +37,10 @@ func serializeComposite(m map[string]interface{}) string {
 	for _, k := range names {
 		out[k] = m[k]
 	}
-	b, _ := json.Marshal(out)
+	b, err := json.Marshal(out)
+	if err != nil {
+		return ""
+	}
 	return string(b)
 }
 

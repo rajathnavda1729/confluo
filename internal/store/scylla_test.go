@@ -50,5 +50,6 @@ func TestStore_UpsertAndGetState_Integration(t *testing.T) {
 	}
 
 	// Cleanup
+	//nolint:errcheck // test teardown best-effort
 	_ = st.DeleteState(ctx, hash)
 }

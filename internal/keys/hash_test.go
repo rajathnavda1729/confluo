@@ -55,9 +55,9 @@ func BenchmarkCompositeKey_Single(b *testing.B) {
 
 func BenchmarkCompositeKey_Composite(b *testing.B) {
 	m := map[string]interface{}{
-		"tenant": "acme",
 		"order_id": "ord-999",
-		"region": "us-east-1",
+		"region":   "us-east-1",
+		"tenant":   "acme",
 	}
 	for i := 0; i < b.N; i++ {
 		CompositeKey("", m)

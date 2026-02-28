@@ -43,6 +43,6 @@ func BenchmarkApply(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = Apply(participantData, proj)
+		_, _ = Apply(participantData, proj) //nolint:errcheck // benchmark ignores output
 	}
 }

@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/confluo/omni-joiner/internal/config"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/confluo/omni-joiner/internal/config"
 )
 
 func TestManager_ScheduleTimeout_RequiresRedis(t *testing.T) {

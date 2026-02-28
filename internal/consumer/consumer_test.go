@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/confluo/omni-joiner/internal/config"
 	"github.com/google/uuid"
+
+	"github.com/confluo/omni-joiner/internal/config"
 )
 
 func TestHandler_ExtractKey_SingleField(t *testing.T) {

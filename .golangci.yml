@@ -1,0 +1,36 @@
+# golangci-lint configuration for Omni-Joiner (v1-compatible)
+# Aligns with .cursor/rules/go-standards.mdc and docs/DEVELOPMENT.md
+# Run: make lint (uses go run; works with golangci-lint v1)
+
+run:
+  timeout: 2m
+  go: "1.22"
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - goimports
+    - errcheck
+    - errorlint
+    - contextcheck
+    - staticcheck
+    - gosimple
+    - unused
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/confluo/omni-joiner
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5
+
+output:
+  formats:
+    - format: colored-line-number
+      path: stdout
+  print-issued-lines: true
+  print-linter-name: true

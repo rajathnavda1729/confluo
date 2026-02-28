@@ -90,6 +90,7 @@ func (q *Queue) flushDue(ctx context.Context) {
 			}
 		}
 		if q.store != nil {
+			//nolint:errcheck // best-effort cleanup after successful produce
 			_ = q.store.DeleteState(ctx, p.joinKeyHash)
 		}
 	}

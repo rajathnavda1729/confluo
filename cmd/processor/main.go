@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/confluo/omni-joiner/internal/bloom"
 	"github.com/confluo/omni-joiner/internal/config"
 	"github.com/confluo/omni-joiner/internal/consumer"
@@ -21,8 +24,6 @@ import (
 	"github.com/confluo/omni-joiner/internal/kafka"
 	"github.com/confluo/omni-joiner/internal/store"
 	"github.com/confluo/omni-joiner/internal/timeout"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -98,9 +99,13 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 	srv := &http.Server{Addr: ":9090", Handler: mux}
 	go func() {
 		// Best-effort metrics server; shutdown via defer srv.Shutdown below
+		//nolint:errcheck // intentional: we shut down via defer
 		_ = srv.ListenAndServe()
 	}()
-	defer srv.Shutdown(context.Background())
+	defer func() {
+		//nolint:errcheck // best-effort shutdown; use ctx so shutdown respects cancellation
+		_ = srv.Shutdown(ctx)
+	}()
 
 	storeCfg := store.Config{
 		Hosts:    cfg.ScyllaHosts,
