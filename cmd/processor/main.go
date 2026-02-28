@@ -21,6 +21,7 @@ import (
 	"github.com/confluo/omni-joiner/internal/consumer"
 	"github.com/confluo/omni-joiner/internal/delay"
 	"github.com/confluo/omni-joiner/internal/egress"
+	"github.com/confluo/omni-joiner/internal/health"
 	"github.com/confluo/omni-joiner/internal/kafka"
 	"github.com/confluo/omni-joiner/internal/store"
 	"github.com/confluo/omni-joiner/internal/timeout"
@@ -62,6 +63,15 @@ func loadProcessorConfig(path string) (*config.ProcessorConfig, error) {
 	return &cfg, nil
 }
 
+// redisPingerAdapter adapts redis.Client to health.RedisPinger.
+type redisPingerAdapter struct {
+	c *redis.Client
+}
+
+func (r *redisPingerAdapter) Ping(ctx context.Context) error {
+	return r.c.Ping(ctx).Err()
+}
+
 // retry runs fn until it succeeds or ctx is cancelled or maxDur elapses; backoff between attempts.
 func retry(ctx context.Context, maxDur time.Duration, name string, fn func() error) error {
 	deadline := time.Now().Add(maxDur)
@@ -93,19 +103,9 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 	if cfg.JoinConfig == nil {
 		log.Fatal("join_config or config_path required")
 	}
-
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	srv := &http.Server{Addr: ":9090", Handler: mux}
-	go func() {
-		// Best-effort metrics server; shutdown via defer srv.Shutdown below
-		//nolint:errcheck // intentional: we shut down via defer
-		_ = srv.ListenAndServe()
-	}()
-	defer func() {
-		//nolint:errcheck // best-effort shutdown; use ctx so shutdown respects cancellation
-		_ = srv.Shutdown(ctx)
-	}()
+	if err := config.ValidateJoinConfig(cfg.JoinConfig); err != nil {
+		log.Fatalf("invalid join config: %v", err)
+	}
 
 	storeCfg := store.Config{
 		Hosts:    cfg.ScyllaHosts,
@@ -141,13 +141,36 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 	}
 	defer kclient.Close()
 
+	var redisPing health.RedisPinger
+	var rdb *redis.Client
+	if cfg.RedisAddr != "" {
+		rdb = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+		defer rdb.Close()
+		redisPing = &redisPingerAdapter{c: rdb}
+	}
+
+	healthChecker := health.NewChecker(st, kclient, redisPing)
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/health", healthChecker)
+	mux.Handle("/ready", healthChecker)
+	mux.Handle("/live", healthChecker)
+	srv := &http.Server{Addr: ":9090", Handler: mux}
+	go func() {
+		// Best-effort metrics server; shutdown via defer srv.Shutdown below
+		//nolint:errcheck // intentional: we shut down via defer
+		_ = srv.ListenAndServe()
+	}()
+	defer func() {
+		//nolint:errcheck // best-effort shutdown; use ctx so shutdown respects cancellation
+		_ = srv.Shutdown(ctx)
+	}()
+
 	var bloomFilter consumer.BloomChecker
 	var timeoutSched consumer.TimeoutScheduler
 	var lateTracker consumer.LateArrivalTracker
 	correctionsTopic := cfg.CorrectionsTopic
-	if cfg.RedisAddr != "" {
-		rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
-		defer rdb.Close()
+	if rdb != nil {
 		bloomFilter = bloom.New(rdb, cfg.RedisBloomKey)
 		if cfg.CorrectionsTopic != "" {
 			lateTracker = egress.NewRedisPartialTracker(rdb, "omni_joiner:partial")
@@ -167,7 +190,7 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 
 	var delayQueue consumer.DelayPublisher
 	if cfg.JoinConfig.PostJoinDelay.ToDuration() > 0 {
-		dq := delay.NewQueue(st, kclient, cfg.EgressTopic)
+		dq := delay.NewQueue(st, kclient, cfg.EgressTopic, cfg.JoinConfig.Name)
 		delayQueue = dq
 		go dq.Run(ctx)
 	}

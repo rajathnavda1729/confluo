@@ -45,14 +45,14 @@ This document is a **system-architect assessment** of Omni-Joiner: whether it is
 |-----|--------|-----------------|
 | **No health/readiness HTTP** | Orchestrators (e.g. K8s) cannot distinguish “process up” from “consuming and connected”. A pod can be up but stuck on Kafka or Scylla. | Add `/health` (liveness) and `/ready` (readiness: Kafka + Scylla + optional Redis connected, consumer running). |
 | **No structured logging** | `log.Printf` is hard to parse in log aggregators; no log levels or request/correlation IDs. | Introduce a small logger interface and use structured (e.g. JSON) logs with levels; add trace/span IDs when processing a record. |
-| **Failure metrics missing** | Handle errors, commit errors, and produce failures (delay queue, timeout manager) are only logged. | Add Prometheus counters (e.g. `omni_joiner_handle_errors_total`, `omni_joiner_commit_errors_total`, `omni_joiner_egress_failures_total`) for alerting and SLOs. |
+| **Failure metrics missing** | Handle errors, commit errors, and produce failures (delay queue, timeout manager) are only logged. | **Done (P0.2):** Counters `omni_joiner_handle_errors_total`, `omni_joiner_commit_errors_total`, `omni_joiner_egress_failures_total` (labels: config, phase) on `/metrics`. See [TESTING.md](TESTING.md). |
 
 ### 3.2 Durability and correctness
 
 | Gap | Impact | Recommendation |
 |-----|--------|-----------------|
 | **Delay queue in-memory** | Pending delayed publishes are lost on process restart. Joins that completed but were waiting for `post_join_delay` will never be published unless reprocessed (and state was not yet deleted). | Document as a limitation; for production with delay, consider a durable delay store (e.g. Redis or a “delay” topic with consumer that re-enqueues by timestamp) or accept best-effort delay after restart. |
-| **Config not validated at startup** | Invalid join config (e.g. projection field referencing unknown stream) can cause runtime errors. | Validate join config on startup (stream_ids, projection stream refs, key fields) and fail fast with a clear message. |
+| **Config not validated at startup** | Invalid join config (e.g. projection field referencing unknown stream) can cause runtime errors. | **Done (P0.3):** Validate join config on startup (stream_ids, projection stream refs, key fields, partial+TTL); fail fast with clear message. See `internal/config.ValidateJoinConfig` and tests in `config_test.go`. |
 | **Bloom false positives** | Bloom “maybe seen” can force a read when the key was never stored (e.g. after Scylla compaction or key eviction). Extra read is safe but adds load. | Document as an operational consideration; optionally expose a metric for “first arrival vs follow-up” to tune Bloom capacity/error rate. |
 
 ### 3.3 Scaling and multi-tenancy
@@ -86,9 +86,9 @@ Use this as a quick checklist before treating the system as production-grade.
 
 - [ ] **Downstream is idempotent** — Egress (and corrections) are at-least-once; consumers must upsert by join key.
 - [ ] **Kafka key = join key** — Producers set message key so that ordering and partitioning are correct ([ORDERING.md](ORDERING.md)).
-- [ ] **Config and secrets** — Join and processor config validated; secrets not committed; file permissions or secret manager in use.
-- [ ] **Observability** — Metrics scraped (e.g. Prometheus); dashboards for join rate, latency, and (once added) errors; alerting on commit/handle/produce failures.
-- [ ] **Health/readiness** — Once implemented, liveness/readiness used by orchestrator; no traffic until ready.
+- [ ] **Config and secrets** — Join and processor config validated at startup (P0.3); secrets not committed; file permissions or secret manager in use.
+- [x] **Observability** — Metrics scraped (e.g. Prometheus); dashboards for join rate, latency, and errors; alert on `handle_errors_total`, `commit_errors_total`, `egress_failures_total` (see [TESTING.md](TESTING.md)).
+- [x] **Health/readiness** — `GET /health` (liveness) and `GET /ready` (readiness) are implemented; use them in your orchestrator (see [TESTING.md](TESTING.md)).
 - [ ] **Delay queue** — If `post_join_delay` is used, understand that pending delayed items are lost on restart; accept or add durability.
 - [ ] **Capacity** — Partition count, Scylla/Redis sizing, and Bloom parameters tuned for key cardinality and throughput ([ARCHITECTURE.md](ARCHITECTURE.md)).
 

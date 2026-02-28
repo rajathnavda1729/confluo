@@ -67,9 +67,9 @@ Driven by [docs/PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) and [docs/PROD
 
 | Step | Item                                                                 | Status   | Notes |
 | ---- | -------------------------------------------------------------------- | -------- | ----- |
-| P0.1 | Health and readiness HTTP endpoints (`/health`, `/ready`)            | Pending  | §3.1  |
-| P0.2 | Failure metrics (handle, commit, egress errors)                       | Pending  | §3.1  |
-| P0.3 | Join config validation at startup                                    | Pending  | §3.2  |
+| P0.1 | Health and readiness HTTP endpoints (`/health`, `/ready`)            | Done    | §3.1  |
+| P0.2 | Failure metrics (handle, commit, egress errors)                       | Done    | §3.1  |
+| P0.3 | Join config validation at startup                                    | Done    | §3.2; ValidateJoinConfig in internal/config; tests in config_test.go |
 | P0.4 | Document delay queue in-memory limitation                            | Pending  | §3.2  |
 | P0.5 | Document config and secrets (file permissions, env/secrets)          | Pending  | §3.4  |
 | P1.1 | Structured logging (levels, optional JSON)                           | Pending  | §3.1  |

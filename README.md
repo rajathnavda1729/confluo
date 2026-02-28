@@ -36,6 +36,7 @@ A high-performance, distributed **N-way stream joining platform** designed for s
 | Redpanda | 19092 (Kafka)  | Input and egress topics          |
 | ScyllaDB | 9042 (CQL)     | Join state store                 |
 | Redis    | 6379, 8001     | Bloom filter (Redis Stack)      |
+| Processor | 9090 (HTTP)   | `/metrics`, `/health`, `/ready` |
 
 ### Configuration
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/confluo/omni-joiner/internal/consumer"
+	"github.com/confluo/omni-joiner/internal/metrics"
 	"github.com/confluo/omni-joiner/internal/store"
 )
 
@@ -20,23 +21,26 @@ type pending struct {
 
 // Queue holds completed joins that should be published after a settle delay.
 type Queue struct {
-	store    *store.Store
-	producer consumer.Producer
-	topic    string
-	mu       sync.Mutex
-	pending  []pending
-	tick     time.Duration
-	stop     chan struct{}
+	store      *store.Store
+	producer   consumer.Producer
+	topic      string
+	configName string
+	mu         sync.Mutex
+	pending    []pending
+	tick       time.Duration
+	stop       chan struct{}
 }
 
 // NewQueue creates a delay queue that publishes to the given topic after each item's publishAt.
-func NewQueue(store *store.Store, producer consumer.Producer, topic string) *Queue {
+// configName is the join config name for metrics (e.g. egress_failures_total phase=delay).
+func NewQueue(store *store.Store, producer consumer.Producer, topic string, configName string) *Queue {
 	return &Queue{
-		store:    store,
-		producer: producer,
-		topic:    topic,
-		tick:     50 * time.Millisecond,
-		stop:     make(chan struct{}),
+		store:      store,
+		producer:   producer,
+		topic:      topic,
+		configName: configName,
+		tick:       50 * time.Millisecond,
+		stop:       make(chan struct{}),
 	}
 }
 
@@ -85,6 +89,7 @@ func (q *Queue) flushDue(ctx context.Context) {
 	for _, p := range due {
 		if q.producer != nil {
 			if err := q.producer.ProduceSync(ctx, q.topic, p.msgKey, p.joinedBytes); err != nil {
+				metrics.EgressFailuresTotal.WithLabelValues(q.configName, "delay").Inc()
 				log.Printf("delay queue produce failed (key=%x): %v", p.msgKey, err)
 				continue
 			}

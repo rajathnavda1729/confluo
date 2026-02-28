@@ -159,6 +159,7 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 			}
 			if err := h.publishTo(ctx, h.correctionsTopic, corrBytes, joinKeyHash); err != nil {
 				log.Printf("[%s] late-arrival correction publish failed: %v", h.joinCfg.Name, err)
+				metrics.EgressFailuresTotal.WithLabelValues(h.joinCfg.Name, "correction").Inc()
 			}
 			//nolint:errcheck // best-effort cleanup; state may be stale on retry
 			_ = h.lateTracker.Remove(ctx, joinKeyHash) // best-effort cleanup
@@ -181,6 +182,7 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 			return nil
 		}
 		if err := h.publish(ctx, res.JoinedBytes, rec.Key); err != nil {
+			metrics.EgressFailuresTotal.WithLabelValues(h.joinCfg.Name, "main").Inc()
 			return err
 		}
 		metrics.JoinSuccessTotal.WithLabelValues(h.joinCfg.Name).Inc()
@@ -265,10 +267,12 @@ func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, st
 			for _, rec := range p.Records {
 				r := recordFromKgo(rec)
 				if err := handler.Handle(ctx, r); err != nil {
+					metrics.HandleErrorsTotal.WithLabelValues(joinCfg.Name).Inc()
 					log.Printf("handle error (topic=%s partition=%d offset=%d key=%q): %v", rec.Topic, rec.Partition, rec.Offset, rec.Key, err)
 					continue
 				}
 				if err := client.CommitRecords(ctx, rec); err != nil {
+					metrics.CommitErrorsTotal.WithLabelValues(joinCfg.Name).Inc()
 					log.Printf("commit error (topic=%s partition=%d offset=%d): %v", rec.Topic, rec.Partition, rec.Offset, err)
 					commitErr = err
 					return

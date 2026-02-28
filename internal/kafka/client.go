@@ -4,8 +4,10 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 // Producer sends messages to Kafka. Implementations are safe for concurrent use.
@@ -50,4 +52,15 @@ func (c *Client) ProduceSync(ctx context.Context, topic string, key, value []byt
 // Close closes the client. Best-effort; call defer c.Close() for cleanup.
 func (c *Client) Close() {
 	c.Client.Close()
+}
+
+// Ping verifies connectivity to the broker. Use for readiness probes.
+func (c *Client) Ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := c.Client.Request(ctx, &kmsg.MetadataRequest{})
+	if err != nil {
+		return fmt.Errorf("kafka ping: %w", err)
+	}
+	return nil
 }

@@ -99,3 +99,38 @@ func LoadJoinConfig(path string) (*JoinConfig, error) {
 
 // N returns the number of streams (join width).
 func (c *JoinConfig) N() int { return len(c.StreamIDs) }
+
+// ValidateJoinConfig checks that the join config is valid for runtime. Returns an error with a clear message if not.
+// Call after loading config (e.g. at startup) to fail fast.
+func ValidateJoinConfig(c *JoinConfig) error {
+	if c == nil {
+		return fmt.Errorf("join config is nil")
+	}
+	if len(c.StreamIDs) == 0 {
+		return fmt.Errorf("join config %q: stream_ids must be non-empty", c.Name)
+	}
+	streamSet := make(map[string]bool)
+	for _, s := range c.StreamIDs {
+		streamSet[s] = true
+	}
+	for i, p := range c.Projection {
+		if p.Stream == "" {
+			return fmt.Errorf("join config %q: projection[%d] has empty stream", c.Name, i)
+		}
+		if !streamSet[p.Stream] {
+			return fmt.Errorf("join config %q: projection[%d] stream %q is not in stream_ids %v", c.Name, i, p.Stream, c.StreamIDs)
+		}
+	}
+	if c.Key.Field == "" && len(c.Key.Fields) == 0 {
+		return fmt.Errorf("join config %q: key must have field or fields", c.Name)
+	}
+	for i, f := range c.Key.Fields {
+		if f == "" {
+			return fmt.Errorf("join config %q: key.fields[%d] must be non-empty", c.Name, i)
+		}
+	}
+	if c.Egress == EgressPartial && c.TTL.ToDuration() <= 0 {
+		return fmt.Errorf("join config %q: egress partial requires ttl > 0", c.Name)
+	}
+	return nil
+}

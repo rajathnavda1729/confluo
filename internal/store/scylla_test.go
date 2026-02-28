@@ -53,3 +53,23 @@ func TestStore_UpsertAndGetState_Integration(t *testing.T) {
 	//nolint:errcheck // test teardown best-effort
 	_ = st.DeleteState(ctx, hash)
 }
+
+// Integration test: requires ScyllaDB. Run with: go test -v ./internal/store/... (without -short)
+func TestStore_Ping_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	cfg := Config{Hosts: []string{"127.0.0.1"}, Keyspace: "omni_joiner", Timeout: 5 * time.Second}
+	ctx := context.Background()
+	if err := EnsureKeyspaceAndTable(ctx, cfg); err != nil {
+		t.Skip("ScyllaDB not available:", err)
+	}
+	st, err := New(cfg)
+	if err != nil {
+		t.Skip("ScyllaDB not available:", err)
+	}
+	defer st.Close()
+	if err := st.Ping(ctx); err != nil {
+		t.Fatal("Ping:", err)
+	}
+}

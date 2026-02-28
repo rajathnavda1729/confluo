@@ -42,7 +42,7 @@ docker compose exec redpanda rpk topic create join-input --brokers localhost:190
 docker compose exec redpanda rpk topic create join-output --brokers localhost:19092
 ```
 
-The processor uses `config/processor_docker.json` (Kafka at `redpanda:19092`, Scylla at `scylla`, Redis at `redis`). Metrics: `http://localhost:9090/metrics`.
+The processor uses `config/processor_docker.json` (Kafka at `redpanda:19092`, Scylla at `scylla`, Redis at `redis`). Metrics: `http://localhost:9090/metrics`. **Health:** `GET http://localhost:9090/health` (liveness) and `GET http://localhost:9090/ready` (readiness: Scylla, Kafka, optional Redis).
 
 **Option B: Run the processor on the host**
 
@@ -126,7 +126,7 @@ docker compose up -d && docker compose up -d processor
 docker compose exec -T redpanda rpk topic consume join-output --brokers localhost:19092 -n 4
 ```
 
-**Metrics:** When the processor is running, Prometheus metrics are exposed at `http://localhost:9090/metrics`.
+**Metrics:** When the processor is running, Prometheus metrics are exposed at `http://localhost:9090/metrics`. Counters include: `omni_joiner_join_success_total`, `omni_joiner_events_processed_total`, `omni_joiner_handle_errors_total`, `omni_joiner_commit_errors_total`, `omni_joiner_egress_failures_total` (labels: `config`, and for egress `phase`: main, delay, timeout, correction). Use these for alerting and SLOs. **Liveness:** `GET /health` or `GET /live` returns 200 when the process is up. **Readiness:** `GET /ready` returns 200 when Scylla, Kafka, and (if configured) Redis are reachable; otherwise 503 with a JSON body listing failures.
 
 **Troubleshooting**
 

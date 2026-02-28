@@ -119,6 +119,16 @@ func (s *Store) Close() {
 	s.session.Close()
 }
 
+// Ping runs a lightweight query to verify the session can reach ScyllaDB. Use for readiness probes.
+func (s *Store) Ping(ctx context.Context) error {
+	q := s.session.Query("SELECT key FROM system.local LIMIT 1").WithContext(ctx)
+	iter := q.Iter()
+	if err := iter.Close(); err != nil {
+		return fmt.Errorf("scylla ping: %w", err)
+	}
+	return nil
+}
+
 // CreateKeyspaceAndTable creates the keyspace and join_state table if they do not exist.
 // Deprecated: use EnsureKeyspaceAndTable before New() instead, so the keyspace exists when the session is created.
 func (s *Store) CreateKeyspaceAndTable(ctx context.Context) error {
