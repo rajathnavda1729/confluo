@@ -1,0 +1,11 @@
+{
+  "kafka_brokers": ["127.0.0.1:19092"],
+  "input_topic": "join-input",
+  "egress_topic": "join-output",
+  "config_path": "config/join_partial.json",
+  "scylla_hosts": ["127.0.0.1"],
+  "scylla_keyspace": "omni_joiner",
+  "redis_addr": "127.0.0.1:6379",
+  "redis_bloom_key": "omni_joiner:bloom",
+  "corrections_topic": "join-corrections"
+}

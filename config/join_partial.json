@@ -1,0 +1,14 @@
+{
+  "config_id": "550e8400-e29b-41d4-a716-446655440002",
+  "name": "orders-shipments-partial",
+  "stream_ids": ["orders", "shipments"],
+  "key": { "field": "order_id" },
+  "ttl": "60s",
+  "projection": [
+    { "output": "order_id", "stream": "orders", "field": "order_id" },
+    { "output": "price", "stream": "orders", "field": "price" },
+    { "output": "status", "stream": "shipments", "field": "status" }
+  ],
+  "egress": "partial",
+  "post_join_delay": 0
+}

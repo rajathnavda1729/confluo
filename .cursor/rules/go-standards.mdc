@@ -1,0 +1,53 @@
+---
+description: Go production coding standards for Omni-Joiner
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Go Production Standards
+
+## Formatting and Style
+
+- Use `gofmt` / `goimports`. Imports: standard library, blank line, third-party, blank line, internal (project) packages.
+- Line length: prefer &lt; 120 characters; break function args and struct literals across lines when needed.
+- Name exports for clarity: `JoinConfig`, `UpsertParticipant`, `EgressTopic`. Unexported for internal helpers.
+
+## Error Handling
+
+- **Never ignore errors without justification.** Prefer explicit handling; if ignoring is intentional, add a short comment (e.g. `// best-effort cleanup`).
+- **Wrap with context:** `return fmt.Errorf("upsert participant: %w", err)` so callers can use `errors.Is` / `errors.As`.
+- **Public APIs:** Return typed errors or well-documented sentinels where callers need to branch (e.g. “not found” vs “unavailable”).
+
+## Interfaces and Packages
+
+- Define interfaces where they reduce coupling (e.g. `BloomChecker`, `TimeoutScheduler`) in the consumer package; implement in `internal/bloom`, `internal/timeout`.
+- Keep packages focused: one primary responsibility per package (e.g. `internal/keys` for hashing, `internal/projection` for projection only).
+- Prefer `internal/` for non-reusable project code; avoid new top-level packages unless clearly shared.
+
+## Concurrency and Resources
+
+- **Context:** Pass `context.Context` as first argument to RPCs, DB calls, and long-running or cancellable work. Honor cancellation and deadlines.
+- **Cleanup:** Use `defer` for close/cleanup (sessions, connections, files). Ensure background goroutines stop when context is cancelled (e.g. `select { case <-ctx.Done(): return }`).
+- **No global mutable state** for production paths; inject dependencies (store, producer, config) via constructors or options.
+
+## Tests
+
+- **Table-driven tests** for multiple cases: `t.Run(name, func(t *testing.T) { ... })`.
+- **Assertions:** Use `if err != nil { t.Fatal(err) }` or a small helper; keep test output readable (e.g. include key values in failure messages).
+- **Integration:** Use build tags or env flags to separate integration tests from unit tests; document in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+## Example (error handling)
+
+```go
+// BAD: ignored error
+state, _ := s.store.GetState(ctx, key)
+
+// GOOD: wrap and return
+state, err := s.store.GetState(ctx, key)
+if err != nil {
+    return nil, fmt.Errorf("get state for key %x: %w", key, err)
+}
+if state == nil {
+    return nil, nil // document: "not found" is represented by nil, nil
+}
+```

@@ -1,0 +1,43 @@
+---
+description: Omni-Joiner development process — phase-wise execution, tests, docs, checklist
+alwaysApply: true
+---
+
+# Omni-Joiner Development Rules
+
+## Execution Model
+
+- **Execute by phase.** Work only within the current phase from the execution plan ([.cursor/plans/](.cursor/plans/) or [Omni-Joiner_ Stream Joining Platform Design.md](Omni-Joiner_%20Stream%20Joining%20Platform%20Design.md)). Do not implement later-phase features until the current phase is complete and checked off.
+- **One step at a time.** Each plan step must be completed (code + tests + docs + checklist update) before moving to the next step.
+- **Checklist is source of truth.** Before starting a step, mark it in progress in the checklist. When done, mark it complete and ensure the checklist in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) reflects the current state.
+
+## Tests
+
+- **Every step has tests.** For each deliverable add:
+  - **Unit tests** for pure logic (hashing, projection, config parsing, store interface usage).
+  - **Integration tests** where applicable (e.g. store against real or testcontainers ScyllaDB, consumer with test Kafka).
+- **Scenario tests from the design** (when in scope for the phase):
+  - Slow stream (A at T=0, B at T=9min → join succeeds).
+  - Orphan (A only, B never → partial egress at timeout).
+  - Race (same key, two streams → atomic update, single joined event).
+- **No merging of step code without tests.** If a step adds a new package or public API, that package must have at least one test file (e.g. `*_test.go`).
+
+## Documentation
+
+- **Document as you go.** For each step:
+  - Update or add doc comments for new public types and functions.
+  - If behavior or config changes, update [README.md](README.md) or the relevant doc under [docs/](docs/).
+- **Reduce context burden:** Prefer short, focused docs (e.g. [docs/ORDERING.md](docs/ORDERING.md), [docs/LATE_ARRIVAL.md](docs/LATE_ARRIVAL.md)) over long monoliths. Link from README to these.
+- **Design decisions** that affect behavior, APIs, or operations must be recorded in [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) with date and rationale.
+
+## Coding Standards
+
+- **Production standard:** Code must be suitable for production: no TODOs that skip error handling, no silent ignores of errors unless explicitly documented, no hardcoded secrets or non-default ports in library code.
+- **Go standards:** Follow the project Go rules in `.cursor/rules/go-standards.mdc` (formatting, errors, interfaces, concurrency).
+- **Naming:** Use clear, consistent names; prefer existing project patterns (e.g. `JoinConfig`, `UpsertParticipant`, `EgressTopic`).
+
+## Checklist Usage
+
+- The execution checklist lives in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+- When starting work: set the current step to **in progress** in the checklist.
+- When finishing: set it to **done**, add a one-line summary of what was delivered, and ensure any new files or config are referenced in the docs.

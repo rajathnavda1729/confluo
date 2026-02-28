@@ -1,0 +1,15 @@
+{
+  "config_id": "550e8400-e29b-41d4-a716-446655440004",
+  "name": "three-way-join",
+  "stream_ids": ["orders", "shipments", "invoices"],
+  "key": { "field": "order_id" },
+  "ttl": 600000000000,
+  "projection": [
+    { "output": "order_id", "stream": "orders", "field": "order_id" },
+    { "output": "price", "stream": "orders", "field": "price" },
+    { "output": "status", "stream": "shipments", "field": "status" },
+    { "output": "invoice_id", "stream": "invoices", "field": "invoice_id" }
+  ],
+  "egress": "inner",
+  "post_join_delay": 0
+}

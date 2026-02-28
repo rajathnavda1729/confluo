@@ -1,0 +1,16 @@
+# Build stage
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /processor ./cmd/processor
+
+# Run stage
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+COPY --from=builder /processor .
+COPY config ./config
+# Give Scylla and Redpanda time to be fully ready after healthchecks
+ENTRYPOINT ["/bin/sh", "-c", "sleep 15 && exec ./processor -config config/processor_docker.json"]

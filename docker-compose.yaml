@@ -1,0 +1,54 @@
+services:
+  redpanda:
+    # We use franz-go (Redpanda-validated Go client); v24 works. Single listener on 19092.
+    image: redpandadata/redpanda:v24.3.5
+    command: redpanda start --smp 1 --memory 1G --reserve-memory 0M --overprovisioned --node-id 0 --kafka-addr external://0.0.0.0:19092 --advertise-kafka-addr external://redpanda:19092
+    ports:
+      - "19092:19092"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  scylla:
+    image: scylladb/scylla:6.0
+    # rpc-address 0.0.0.0 requires broadcast-rpc-address. Use 127.0.0.1; processor in Docker uses DisableInitialHostLookup so it keeps using scylla:9042.
+    command: --smp 1 --memory 512M --overprovisioned 1 --rpc-address 0.0.0.0 --broadcast-rpc-address 127.0.0.1
+    ports:
+      - "9042:9042"
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "DESCRIBE KEYSPACES"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    # Redis Stack includes RedisBloom module
+    image: redis/redis-stack:7.2.0-v10
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  processor:
+    build: .
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      scylla:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "9090:9090"
+
+volumes:
+  redpanda_data:

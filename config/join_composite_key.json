@@ -1,0 +1,14 @@
+{
+  "config_id": "550e8400-e29b-41d4-a716-446655440005",
+  "name": "composite-key-join",
+  "stream_ids": ["stream_a", "stream_b"],
+  "key": { "fields": ["tenant_id", "order_id"] },
+  "ttl": 600000000000,
+  "projection": [
+    { "output": "tenant_id", "stream": "stream_a", "field": "tenant_id" },
+    { "output": "order_id", "stream": "stream_a", "field": "order_id" },
+    { "output": "value", "stream": "stream_b", "field": "value" }
+  ],
+  "egress": "inner",
+  "post_join_delay": 0
+}
