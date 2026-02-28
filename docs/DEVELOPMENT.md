@@ -70,12 +70,12 @@ Driven by [docs/PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) and [docs/PROD
 | P0.1 | Health and readiness HTTP endpoints (`/health`, `/ready`)            | Done    | §3.1  |
 | P0.2 | Failure metrics (handle, commit, egress errors)                       | Done    | §3.1  |
 | P0.3 | Join config validation at startup                                    | Done    | §3.2; ValidateJoinConfig in internal/config; tests in config_test.go |
-| P0.4 | Document delay queue in-memory limitation                            | Pending  | §3.2  |
-| P0.5 | Document config and secrets (file permissions, env/secrets)          | Pending  | §3.4  |
-| P1.1 | Structured logging (levels, optional JSON)                           | Pending  | §3.1  |
-| P1.2 | Capacity and partition guidance (ops doc)                            | Pending  | §3.3  |
-| P1.3 | Commit failure retry (bounded) before exit                           | Pending  | §3.5  |
-| P1.4 | Bloom false-positive operational note (and optional metric)         | Pending  | §3.2  |
+| P0.4 | Document delay queue in-memory limitation                            | Done    | §3.2; PRODUCTION_READINESS.md §3.2.1, TESTING.md, ARCHITECTURE.md §4.3 |
+| P0.5 | Document config and secrets (file permissions, env/secrets)          | Done    | §3.4; PRODUCTION_READINESS.md §3.4.1 |
+| P1.1 | Structured logging (levels, optional JSON)                           | Done    | §3.1; internal/logger, LOG_LEVEL, LOG_FORMAT=json; consumer, delay, timeout, main |
+| P1.2 | Capacity and partition guidance (ops doc)                            | Done    | §3.3; ARCHITECTURE.md §6 Operations and capacity |
+| P1.3 | Commit failure retry (bounded) before exit                           | Done    | §3.5; commitWithRetry in consumer, 3 attempts + backoff |
+| P1.4 | Bloom false-positive operational note (and optional metric)         | Done    | §3.2; ARCHITECTURE.md §6.3 |
 | P2.1 | Durable delay queue (Redis or topic)                                 | Pending  | §3.2  |
 | P2.2 | Multiple join configs per process                                    | Pending  | §3.3  |
 | P2.3 | Optional auth for /metrics                                           | Pending  | §3.4  |

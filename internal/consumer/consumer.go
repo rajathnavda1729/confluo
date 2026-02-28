@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -17,6 +16,7 @@ import (
 	"github.com/confluo/omni-joiner/internal/egress"
 	"github.com/confluo/omni-joiner/internal/engine"
 	"github.com/confluo/omni-joiner/internal/keys"
+	"github.com/confluo/omni-joiner/internal/logger"
 	"github.com/confluo/omni-joiner/internal/metrics"
 	"github.com/confluo/omni-joiner/internal/projection"
 	"github.com/confluo/omni-joiner/internal/store"
@@ -50,6 +50,7 @@ type Handler struct {
 	delayQueue       DelayPublisher
 	lateTracker      LateArrivalTracker
 	correctionsTopic string
+	log              logger.Logger
 }
 
 // LateArrivalTracker indicates whether a key had partial egress (so we can send correction on late arrival).
@@ -76,7 +77,11 @@ type TimeoutScheduler interface {
 }
 
 // NewHandler builds a handler that uses the store, join config, and optional producer for egress.
-func NewHandler(store *store.Store, joinCfg *config.JoinConfig, producer Producer, egressTopic string, bloom BloomChecker, timeoutSched TimeoutScheduler, delayQueue DelayPublisher, lateTracker LateArrivalTracker, correctionsTopic string) *Handler {
+// If log is nil, logger.Global is used.
+func NewHandler(store *store.Store, joinCfg *config.JoinConfig, producer Producer, egressTopic string, bloom BloomChecker, timeoutSched TimeoutScheduler, delayQueue DelayPublisher, lateTracker LateArrivalTracker, correctionsTopic string, log logger.Logger) *Handler {
+	if log == nil {
+		log = logger.Global
+	}
 	return &Handler{
 		store:            store,
 		joinCfg:          joinCfg,
@@ -88,6 +93,7 @@ func NewHandler(store *store.Store, joinCfg *config.JoinConfig, producer Produce
 		delayQueue:       delayQueue,
 		lateTracker:      lateTracker,
 		correctionsTopic: correctionsTopic,
+		log:              log,
 	}
 }
 
@@ -158,7 +164,7 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 				return fmt.Errorf("marshal correction event: %w", err)
 			}
 			if err := h.publishTo(ctx, h.correctionsTopic, corrBytes, joinKeyHash); err != nil {
-				log.Printf("[%s] late-arrival correction publish failed: %v", h.joinCfg.Name, err)
+				h.log.Warn("late-arrival correction publish failed", "config", h.joinCfg.Name, "error", err)
 				metrics.EgressFailuresTotal.WithLabelValues(h.joinCfg.Name, "correction").Inc()
 			}
 			//nolint:errcheck // best-effort cleanup; state may be stale on retry
@@ -243,8 +249,12 @@ func (h *Handler) publishTo(ctx context.Context, topic string, value []byte, key
 
 // Run consumes from the topic using the kgo client, processes each record with the handler, and commits.
 // The client must have been created with ConsumerGroup and ConsumeTopics for the given topic.
-func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, store *store.Store, producer Producer, egressTopic string, bloom BloomChecker, timeoutSched TimeoutScheduler, delayQueue DelayPublisher, lateTracker LateArrivalTracker, correctionsTopic string) error {
-	handler := NewHandler(store, joinCfg, producer, egressTopic, bloom, timeoutSched, delayQueue, lateTracker, correctionsTopic)
+// If log is nil, logger.Global is used.
+func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, store *store.Store, producer Producer, egressTopic string, bloom BloomChecker, timeoutSched TimeoutScheduler, delayQueue DelayPublisher, lateTracker LateArrivalTracker, correctionsTopic string, log logger.Logger) error {
+	if log == nil {
+		log = logger.Global
+	}
+	handler := NewHandler(store, joinCfg, producer, egressTopic, bloom, timeoutSched, delayQueue, lateTracker, correctionsTopic, log)
 	for {
 		select {
 		case <-ctx.Done():
@@ -268,13 +278,11 @@ func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, st
 				r := recordFromKgo(rec)
 				if err := handler.Handle(ctx, r); err != nil {
 					metrics.HandleErrorsTotal.WithLabelValues(joinCfg.Name).Inc()
-					log.Printf("handle error (topic=%s partition=%d offset=%d key=%q): %v", rec.Topic, rec.Partition, rec.Offset, rec.Key, err)
+					log.Error("handle error", "topic", rec.Topic, "partition", rec.Partition, "offset", rec.Offset, "key", string(rec.Key), "error", err)
 					continue
 				}
-				if err := client.CommitRecords(ctx, rec); err != nil {
-					metrics.CommitErrorsTotal.WithLabelValues(joinCfg.Name).Inc()
-					log.Printf("commit error (topic=%s partition=%d offset=%d): %v", rec.Topic, rec.Partition, rec.Offset, err)
-					commitErr = err
+				commitErr = commitWithRetry(ctx, client, rec, joinCfg.Name, log, 3, 2*time.Second)
+				if commitErr != nil {
 					return
 				}
 			}
@@ -284,6 +292,29 @@ func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, st
 		}
 		client.AllowRebalance()
 	}
+}
+
+// commitWithRetry calls CommitRecords up to maxAttempts times with backoff. Returns the last error if all attempts fail.
+func commitWithRetry(ctx context.Context, client *kgo.Client, rec *kgo.Record, configName string, log logger.Logger, maxAttempts int, backoff time.Duration) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		lastErr = client.CommitRecords(ctx, rec)
+		if lastErr == nil {
+			return nil
+		}
+		metrics.CommitErrorsTotal.WithLabelValues(configName).Inc()
+		log.Warn("commit error, retrying", "topic", rec.Topic, "partition", rec.Partition, "offset", rec.Offset, "attempt", attempt, "maxAttempts", maxAttempts, "error", lastErr)
+		if attempt == maxAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+			// backoff before next attempt
+		}
+	}
+	return lastErr
 }
 
 func recordFromKgo(rec *kgo.Record) *Record {

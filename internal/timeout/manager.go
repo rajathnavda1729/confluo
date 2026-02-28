@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/confluo/omni-joiner/internal/config"
 	"github.com/confluo/omni-joiner/internal/consumer"
+	"github.com/confluo/omni-joiner/internal/logger"
 	"github.com/confluo/omni-joiner/internal/metrics"
 	"github.com/confluo/omni-joiner/internal/projection"
 	"github.com/confluo/omni-joiner/internal/store"
@@ -32,6 +32,7 @@ type Manager struct {
 	pollInterval   time.Duration
 	batchSize      int
 	partialTracker PartialTracker
+	log            logger.Logger
 }
 
 // Config for the timeout manager.
@@ -45,6 +46,7 @@ type Config struct {
 	PollInterval   time.Duration
 	BatchSize      int
 	PartialTracker PartialTracker
+	Log            logger.Logger
 }
 
 // PartialTracker records keys that had partial egress (for late-arrival corrections).
@@ -63,6 +65,9 @@ func New(cfg Config) *Manager {
 	if cfg.BatchSize == 0 {
 		cfg.BatchSize = defaultBatchSize
 	}
+	if cfg.Log == nil {
+		cfg.Log = logger.Global
+	}
 	return &Manager{
 		store:          cfg.Store,
 		joinCfg:        cfg.JoinConfig,
@@ -73,6 +78,7 @@ func New(cfg Config) *Manager {
 		pollInterval:   cfg.PollInterval,
 		batchSize:      cfg.BatchSize,
 		partialTracker: cfg.PartialTracker,
+		log:            cfg.Log,
 	}
 }
 
@@ -135,7 +141,9 @@ func (m *Manager) processDue(ctx context.Context) error {
 			if m.producer != nil {
 				if err := m.publish(ctx, partial, keyHash); err != nil {
 					metrics.EgressFailuresTotal.WithLabelValues(m.joinCfg.Name, "timeout").Inc()
-					log.Printf("timeout partial egress produce failed (key=%x): %v", keyHash, err)
+					if m.log != nil {
+						m.log.Warn("timeout partial egress produce failed", "key", keyHash, "error", err)
+					}
 					continue
 				}
 			}

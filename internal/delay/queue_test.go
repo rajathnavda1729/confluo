@@ -10,7 +10,7 @@ import (
 
 func TestQueue_ScheduleAndFlushDue(t *testing.T) {
 	// Use nil store and producer; we only test that Schedule enqueues and flushDue drains due items
-	q := NewQueue((*store.Store)(nil), nil, "test-topic", "test-config")
+	q := NewQueue((*store.Store)(nil), nil, "test-topic", "test-config", nil)
 
 	hash := []byte("hash123")
 	payload := []byte(`{"a":1}`)
@@ -38,7 +38,7 @@ func TestQueue_ScheduleAndFlushDue(t *testing.T) {
 }
 
 func TestQueue_ScheduleCopiesBytes(t *testing.T) {
-	q := NewQueue((*store.Store)(nil), nil, "topic", "test-config")
+	q := NewQueue((*store.Store)(nil), nil, "topic", "test-config", nil)
 	hash := []byte("hash")
 	payload := []byte("payload")
 	key := []byte("key")
@@ -55,7 +55,7 @@ func TestQueue_ScheduleCopiesBytes(t *testing.T) {
 }
 
 func TestQueue_RunStopsOnContextCancel(t *testing.T) {
-	q := NewQueue((*store.Store)(nil), nil, "topic", "test-config")
+	q := NewQueue((*store.Store)(nil), nil, "topic", "test-config", nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

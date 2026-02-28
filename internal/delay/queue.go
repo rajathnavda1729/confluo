@@ -2,11 +2,11 @@ package delay
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/confluo/omni-joiner/internal/consumer"
+	"github.com/confluo/omni-joiner/internal/logger"
 	"github.com/confluo/omni-joiner/internal/metrics"
 	"github.com/confluo/omni-joiner/internal/store"
 )
@@ -25,6 +25,7 @@ type Queue struct {
 	producer   consumer.Producer
 	topic      string
 	configName string
+	log        logger.Logger
 	mu         sync.Mutex
 	pending    []pending
 	tick       time.Duration
@@ -33,12 +34,17 @@ type Queue struct {
 
 // NewQueue creates a delay queue that publishes to the given topic after each item's publishAt.
 // configName is the join config name for metrics (e.g. egress_failures_total phase=delay).
-func NewQueue(store *store.Store, producer consumer.Producer, topic string, configName string) *Queue {
+// If log is nil, logger.Global is used.
+func NewQueue(store *store.Store, producer consumer.Producer, topic string, configName string, log logger.Logger) *Queue {
+	if log == nil {
+		log = logger.Global
+	}
 	return &Queue{
 		store:      store,
 		producer:   producer,
 		topic:      topic,
 		configName: configName,
+		log:        log,
 		tick:       50 * time.Millisecond,
 		stop:       make(chan struct{}),
 	}
@@ -90,7 +96,7 @@ func (q *Queue) flushDue(ctx context.Context) {
 		if q.producer != nil {
 			if err := q.producer.ProduceSync(ctx, q.topic, p.msgKey, p.joinedBytes); err != nil {
 				metrics.EgressFailuresTotal.WithLabelValues(q.configName, "delay").Inc()
-				log.Printf("delay queue produce failed (key=%x): %v", p.msgKey, err)
+				q.log.Warn("delay queue produce failed", "key", p.msgKey, "error", err)
 				continue
 			}
 		}

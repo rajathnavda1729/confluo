@@ -126,7 +126,7 @@ docker compose up -d && docker compose up -d processor
 docker compose exec -T redpanda rpk topic consume join-output --brokers localhost:19092 -n 4
 ```
 
-**Metrics:** When the processor is running, Prometheus metrics are exposed at `http://localhost:9090/metrics`. Counters include: `omni_joiner_join_success_total`, `omni_joiner_events_processed_total`, `omni_joiner_handle_errors_total`, `omni_joiner_commit_errors_total`, `omni_joiner_egress_failures_total` (labels: `config`, and for egress `phase`: main, delay, timeout, correction). Use these for alerting and SLOs. **Liveness:** `GET /health` or `GET /live` returns 200 when the process is up. **Readiness:** `GET /ready` returns 200 when Scylla, Kafka, and (if configured) Redis are reachable; otherwise 503 with a JSON body listing failures.
+**Metrics:** When the processor is running, Prometheus metrics are exposed at `http://localhost:9090/metrics`. Counters include: `omni_joiner_join_success_total`, `omni_joiner_events_processed_total`, `omni_joiner_handle_errors_total`, `omni_joiner_commit_errors_total`, `omni_joiner_egress_failures_total` (labels: `config`, and for egress `phase`: main, delay, timeout, correction). Use these for alerting and SLOs. **Logging:** Set `LOG_LEVEL` (debug|info|warn|error) and `LOG_FORMAT=json` for structured JSON logs; default is text. **Liveness:** `GET /health` or `GET /live` returns 200 when the process is up. **Readiness:** `GET /ready` returns 200 when Scylla, Kafka, and (if configured) Redis are reachable; otherwise 503 with a JSON body listing failures.
 
 **Troubleshooting**
 
@@ -176,6 +176,8 @@ docker compose exec -T redpanda rpk topic consume join-output --brokers localhos
 | `config/join_composite_key.json` | 2-way join on **composite** key `tenant_id` + `order_id`. |
 
 **Override join config without changing processor JSON:** Edit `config_path` in the processor config to point at any of the join configs above (e.g. `config/join_three_way.json`).
+
+**Post-join delay and production:** The delay queue (used when `post_join_delay` is set) is **in-memory only**. Pending delayed publishes are lost on process restart; join state is already deleted when the result is enqueued, so reprocessing will not re-emit those records. For production, use a short delay, accept best-effort delivery, or plan for a durable delay store. See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md#321-delay-queue-in-memory-limitation) for details.
 
 **Example: test partial egress**
 

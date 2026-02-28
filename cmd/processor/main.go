@@ -23,6 +23,7 @@ import (
 	"github.com/confluo/omni-joiner/internal/egress"
 	"github.com/confluo/omni-joiner/internal/health"
 	"github.com/confluo/omni-joiner/internal/kafka"
+	"github.com/confluo/omni-joiner/internal/logger"
 	"github.com/confluo/omni-joiner/internal/store"
 	"github.com/confluo/omni-joiner/internal/timeout"
 )
@@ -73,7 +74,10 @@ func (r *redisPingerAdapter) Ping(ctx context.Context) error {
 }
 
 // retry runs fn until it succeeds or ctx is cancelled or maxDur elapses; backoff between attempts.
-func retry(ctx context.Context, maxDur time.Duration, name string, fn func() error) error {
+func retry(ctx context.Context, maxDur time.Duration, name string, log logger.Logger, fn func() error) error {
+	if log == nil {
+		log = logger.Global
+	}
 	deadline := time.Now().Add(maxDur)
 	backoff := 2 * time.Second
 	for {
@@ -87,7 +91,7 @@ func retry(ctx context.Context, maxDur time.Duration, name string, fn func() err
 		if time.Now().After(deadline) {
 			return err
 		}
-		log.Printf("%s not ready: %v; retrying in %v", name, err, backoff)
+		log.Warn("dependency not ready, retrying", "name", name, "error", err, "backoff", backoff)
 		select {
 		case <-time.After(backoff):
 			if backoff < 10*time.Second {
@@ -107,13 +111,15 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 		log.Fatalf("invalid join config: %v", err)
 	}
 
+	log := logger.NewFromEnv()
+
 	storeCfg := store.Config{
 		Hosts:    cfg.ScyllaHosts,
 		Keyspace: cfg.ScyllaKeyspace,
 		Timeout:  10 * time.Second,
 	}
 	var st *store.Store
-	if err := retry(ctx, 30*time.Second, "Scylla", func() error {
+	if err := retry(ctx, 30*time.Second, "Scylla", log, func() error {
 		if e := store.EnsureKeyspaceAndTable(ctx, storeCfg); e != nil {
 			return e
 		}
@@ -132,7 +138,7 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 	defer st.Close()
 
 	var kclient *kafka.Client
-	if err := retry(ctx, 30*time.Second, "Kafka", func() error {
+	if err := retry(ctx, 30*time.Second, "Kafka", log, func() error {
 		var err error
 		kclient, err = kafka.NewClient(cfg.KafkaBrokers, "omni-joiner-processor", cfg.InputTopic)
 		return err
@@ -183,6 +189,7 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 			Redis:          rdb,
 			SetKey:         "omni_joiner:timeouts",
 			PartialTracker: lateTracker,
+			Log:            log,
 		})
 		timeoutSched = tm
 		go tm.Run(ctx)
@@ -190,12 +197,12 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 
 	var delayQueue consumer.DelayPublisher
 	if cfg.JoinConfig.PostJoinDelay.ToDuration() > 0 {
-		dq := delay.NewQueue(st, kclient, cfg.EgressTopic, cfg.JoinConfig.Name)
+		dq := delay.NewQueue(st, kclient, cfg.EgressTopic, cfg.JoinConfig.Name, log)
 		delayQueue = dq
 		go dq.Run(ctx)
 	}
 
 	groupID := "omni-joiner-processor"
-	log.Printf("processor starting (input=%s, egress=%s, group=%s)", cfg.InputTopic, cfg.EgressTopic, groupID)
-	return consumer.Run(ctx, kclient.Client, cfg.JoinConfig, st, kclient, cfg.EgressTopic, bloomFilter, timeoutSched, delayQueue, lateTracker, correctionsTopic)
+	log.Info("processor starting", "input", cfg.InputTopic, "egress", cfg.EgressTopic, "group", groupID)
+	return consumer.Run(ctx, kclient.Client, cfg.JoinConfig, st, kclient, cfg.EgressTopic, bloomFilter, timeoutSched, delayQueue, lateTracker, correctionsTopic, log)
 }

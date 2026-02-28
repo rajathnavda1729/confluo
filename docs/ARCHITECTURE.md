@@ -181,7 +181,7 @@ Requires **Redis** (timeout ZSET + partial tracker) and a **corrections topic** 
 
 ### 4.3 Post-Join Delay
 
-**Config:** `post_join_delay` (e.g. `"2s"`). When the join **completes**, the result is not published immediately; it is scheduled in an internal **delay queue** and published after the delay. Use for "settle" semantics (e.g. allow late duplicates to arrive before publishing).
+**Config:** `post_join_delay` (e.g. `"2s"`). When the join **completes**, the result is not published immediately; it is scheduled in an internal **delay queue** and published after the delay. Use for "settle" semantics (e.g. allow late duplicates to arrive before publishing). The delay queue is **in-memory only**: pending delayed publishes are lost on process restart (see [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md#321-delay-queue-in-memory-limitation) and [TESTING.md](TESTING.md)).
 
 **Example:** `config/join_with_delay.json` — `post_join_delay: 2000000000` (2s in nanoseconds). Inner join semantics unchanged; only the publish step is delayed.
 
@@ -213,11 +213,35 @@ Requires **Redis** (timeout ZSET + partial tracker) and a **corrections topic** 
 
 ---
 
-## 6. Where to Go Next
+## 6. Operations and capacity
+
+This section gives operational guidance for partition count, state store sizing, and Bloom filter tuning. Use it when planning production deployment or scaling.
+
+### 6.1 Kafka partitions and throughput
+
+- **Partition count** directly limits consumer parallelism: you can run at most as many consumer instances as there are partitions (each partition is assigned to one consumer in the group).
+- **Recommendation:** Set partition count based on target throughput and consumer count. For example, if you want to run 4 processor instances and achieve ~50k events/s aggregate, create at least 4 partitions on the input topic; more partitions (e.g. 8–16) allow better load balance and headroom.
+- **Key cardinality:** Join keys should be well distributed. If a few keys dominate (e.g. one partition gets most traffic), that partition becomes a hot spot; consider composite keys or salting if needed.
+- **Ordering:** All events for the same join key must go to the same partition (Kafka message key = join key or its hash). See [ORDERING.md](ORDERING.md).
+
+### 6.2 ScyllaDB and Redis
+
+- **ScyllaDB:** One row per active join key. Size the keyspace for expected key cardinality and retention (TTL). High write rate from first-arrival path; read rate depends on follow-up arrivals and Bloom false-positive rate.
+- **Redis:** Used for Bloom filter, timeout ZSET, and (if partial egress) partial tracker. Memory depends on number of keys (Bloom capacity and error rate; ZSET and set sizes). Plan for key cardinality and TTL spread.
+- **Bloom filter:** Capacity and error rate (e.g. RedisBloom `BF.RESERVE`) should be tuned for expected key cardinality. False positives cause an extra Scylla read per affected key; they are safe but add load. See §6.3.
+
+### 6.3 Bloom filter: operational note
+
+A **Bloom false positive** means the filter reports "maybe seen" for a key that was never stored (e.g. key evicted from Scylla or filter/state out of sync). The processor then does a full **UpsertParticipant** (read-modify-write) instead of the fast **UpsertParticipantOnly** path. Semantics remain correct; the only impact is **extra read load** on ScyllaDB. For production, size the Bloom filter (capacity and error rate) to keep the false-positive rate acceptable; monitor Scylla read metrics and consider a future "first arrival vs follow-up" metric to tune Bloom parameters.
+
+---
+
+## 7. Where to Go Next
 
 - **Running and testing:** [TESTING.md](TESTING.md) — topics, produce script, configs.
 - **Ordering and partitioning:** [ORDERING.md](ORDERING.md) — Kafka key = join key.
 - **Late arrival and corrections:** [LATE_ARRIVAL.md](LATE_ARRIVAL.md) — schema and downstream upserts.
 - **Production readiness:** [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — system-architect review: strengths, gaps, and production checklist.
+- **Operations and capacity:** §6 above — partitions, Scylla/Redis, Bloom tuning.
 - **Implementation plan:** [PRODUCTION_READINESS_PLAN.md](PRODUCTION_READINESS_PLAN.md) — planned changes (P0/P1/P2) from the review; track in [DEVELOPMENT.md](DEVELOPMENT.md) Phase 4.
 - **Design and roadmap:** [Omni-Joiner_ Stream Joining Platform Design.md](../Omni-Joiner_%20Stream%20Joining%20Platform%20Design.md).
