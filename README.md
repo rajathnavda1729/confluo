@@ -72,6 +72,8 @@ For the full test checklist and scenario tests, see [docs/DEVELOPMENT.md](docs/D
 
 See [Omni-Joiner_ Stream Joining Platform Design.md](Omni-Joiner_%20Stream%20Joining%20Platform%20Design.md) for requirements, architecture, and phased execution plan.
 
+**Architecture (components, flow, join types):** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — role of Redpanda, ScyllaDB, Redis; flow and sequence diagrams (Mermaid); inner, partial, delay, composite-key joins with examples.
+
 **Development process:** [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — phase-wise execution, checklist, test requirements, coding standards.  
 **Design decisions:** [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) — key choices and rationale.
 
