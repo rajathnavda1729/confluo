@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/confluo/omni-joiner/internal/config"
@@ -122,6 +123,7 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 			if h.timeoutSched != nil {
 				ttl := h.joinCfg.TTL.ToDuration()
 				if ttl > 0 {
+					// Best-effort: timeout schedule failure does not block first-arrival path
 					_ = h.timeoutSched.ScheduleTimeout(ctx, joinKeyHash, time.Now().Add(ttl))
 				}
 			}
@@ -135,6 +137,7 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 	}
 
 	if state != nil && len(state.ParticipantData) < h.joinCfg.N() && h.lateTracker != nil && h.correctionsTopic != "" {
+		// Best-effort: late-arrival correction path; ignore Contains error to avoid blocking
 		ok, _ := h.lateTracker.Contains(ctx, joinKeyHash)
 		if ok {
 			partial, err := projection.Apply(state.ParticipantData, h.joinCfg.Projection)
@@ -147,10 +150,15 @@ func (h *Handler) Handle(ctx context.Context, rec *Record) error {
 				Timestamp: time.Now(),
 				Payload:   json.RawMessage(partial),
 			}
-			corrBytes, _ := corr.Marshal()
-			_ = h.publishTo(ctx, h.correctionsTopic, corrBytes, joinKeyHash)
-			_ = h.lateTracker.Remove(ctx, joinKeyHash)
-			_ = h.store.DeleteState(ctx, joinKeyHash)
+			corrBytes, err := corr.Marshal()
+			if err != nil {
+				return fmt.Errorf("marshal correction event: %w", err)
+			}
+			if err := h.publishTo(ctx, h.correctionsTopic, corrBytes, joinKeyHash); err != nil {
+				log.Printf("[%s] late-arrival correction publish failed: %v", h.joinCfg.Name, err)
+			}
+			_ = h.lateTracker.Remove(ctx, joinKeyHash)   // best-effort cleanup
+			_ = h.store.DeleteState(ctx, joinKeyHash)   // best-effort; state may be stale on retry
 			return nil
 		}
 	}
@@ -247,15 +255,24 @@ func Run(ctx context.Context, client *kgo.Client, joinCfg *config.JoinConfig, st
 				}
 			}
 		}
+		var commitErr error
 		fetches.EachPartition(func(p kgo.FetchTopicPartition) {
 			for _, rec := range p.Records {
 				r := recordFromKgo(rec)
 				if err := handler.Handle(ctx, r); err != nil {
+					log.Printf("handle error (topic=%s partition=%d offset=%d key=%q): %v", rec.Topic, rec.Partition, rec.Offset, rec.Key, err)
 					continue
 				}
-				_ = client.CommitRecords(ctx, rec)
+				if err := client.CommitRecords(ctx, rec); err != nil {
+					log.Printf("commit error (topic=%s partition=%d offset=%d): %v", rec.Topic, rec.Partition, rec.Offset, err)
+					commitErr = err
+					return
+				}
 			}
 		})
+		if commitErr != nil {
+			return commitErr
+		}
 		client.AllowRebalance()
 	}
 }

@@ -97,6 +97,7 @@ func run(ctx context.Context, cfg *config.ProcessorConfig) error {
 	mux.Handle("/metrics", promhttp.Handler())
 	srv := &http.Server{Addr: ":9090", Handler: mux}
 	go func() {
+		// Best-effort metrics server; shutdown via defer srv.Shutdown below
 		_ = srv.ListenAndServe()
 	}()
 	defer srv.Shutdown(context.Background())

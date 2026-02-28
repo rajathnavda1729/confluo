@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -87,11 +88,11 @@ type ProcessorConfig struct {
 func LoadJoinConfig(path string) (*JoinConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load join config from %s: %w", path, err)
 	}
 	var c JoinConfig
 	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load join config from %s: %w", path, err)
 	}
 	return &c, nil
 }

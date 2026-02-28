@@ -42,12 +42,12 @@ func (c *Client) ProduceSync(ctx context.Context, topic string, key, value []byt
 		Value: value,
 	}).FirstErr()
 	if err != nil {
-		return err
+		return fmt.Errorf("produce %s: %w", topic, err)
 	}
 	return nil
 }
 
-// Close closes the client.
+// Close closes the client. Best-effort; call defer c.Close() for cleanup.
 func (c *Client) Close() {
 	c.Client.Close()
 }

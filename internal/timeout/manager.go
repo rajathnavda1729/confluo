@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/confluo/omni-joiner/internal/config"
@@ -130,7 +131,10 @@ func (m *Manager) processDue(ctx context.Context) error {
 				continue
 			}
 			if m.producer != nil {
-				_ = m.publish(ctx, partial, keyHash)
+				if err := m.publish(ctx, partial, keyHash); err != nil {
+					log.Printf("timeout partial egress produce failed (key=%x): %v", keyHash, err)
+					continue
+				}
 			}
 			if m.partialTracker != nil {
 				_ = m.partialTracker.Add(ctx, keyHash)

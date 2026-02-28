@@ -113,7 +113,7 @@ func EnsureKeyspaceAndTable(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// Close closes the session.
+// Close closes the session. Best-effort cleanup.
 func (s *Store) Close() {
 	s.session.Close()
 }
@@ -186,6 +186,7 @@ func (s *Store) GetState(ctx context.Context, joinKeyHash []byte) (*JoinState, e
 		}
 		return nil, fmt.Errorf("get state: %w", err)
 	}
+	// gocql.UUID is 16 bytes; uuid.FromBytes can fail only on wrong length; use zero UUID on error
 	configID, _ := uuid.FromBytes(gocqlUUID[:])
 	if partData == nil {
 		partData = make(map[string][]byte)

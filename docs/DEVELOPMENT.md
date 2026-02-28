@@ -115,6 +115,7 @@ Use this checklist as the source of truth. Update it as steps are completed.
 
 - Prefer **short, focused docs** (one concern per file) and link from README.
 - **Design decisions** that affect behavior, APIs, or operations go in [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) with date and rationale.
+- **Code quality:** After major fixes or migrations, a system-architect review is captured in [CODE_QUALITY_REVIEW.md](CODE_QUALITY_REVIEW.md); it aligns with the Go and Omni-Joiner rules above.
 
 ---
 

@@ -2,6 +2,7 @@ package delay
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -83,7 +84,10 @@ func (q *Queue) flushDue(ctx context.Context) {
 
 	for _, p := range due {
 		if q.producer != nil {
-			_ = q.producer.ProduceSync(ctx, q.topic, p.msgKey, p.joinedBytes)
+			if err := q.producer.ProduceSync(ctx, q.topic, p.msgKey, p.joinedBytes); err != nil {
+				log.Printf("delay queue produce failed (key=%x): %v", p.msgKey, err)
+				continue
+			}
 		}
 		if q.store != nil {
 			_ = q.store.DeleteState(ctx, p.joinKeyHash)
